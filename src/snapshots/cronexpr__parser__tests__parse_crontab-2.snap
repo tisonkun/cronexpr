@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "parse_crontab(\"2 4 * * * Asia/Shanghai\").unwrap()"
 ---
-Corntab {
+Crontab {
     minutes: PossibleLiterals {
         values: {
             2,

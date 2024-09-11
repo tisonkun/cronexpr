@@ -33,7 +33,7 @@ pub use parser::ParseError;
 pub struct Error(String);
 
 #[derive(Debug)]
-pub struct Corntab {
+pub struct Crontab {
     minutes: PossibleLiterals,
     hours: PossibleLiterals,
     months: PossibleLiterals,
@@ -74,7 +74,7 @@ impl PossibleLiterals {
     }
 }
 
-impl FromStr for Corntab {
+impl FromStr for Crontab {
     type Err = ParseError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
@@ -82,16 +82,70 @@ impl FromStr for Corntab {
     }
 }
 
-impl Corntab {
-    pub fn find_next_timestamp_millis(&self, timestamp_millis: i64) -> Result<i64, Error> {
-        Timestamp::from_millisecond(timestamp_millis)
-            .map_err(time_error_with_context("failed to parse timestamp"))
-            .and_then(|ts| self.find_next_timestamp(ts))
-            .map(|ts| ts.as_millisecond())
+impl<'a> TryFrom<&'a str> for Crontab {
+    type Error = ParseError;
+
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+        FromStr::from_str(input)
+    }
+}
+
+#[derive(Debug)]
+pub struct Driver {
+    crontab: Crontab,
+    timestamp: Timestamp,
+}
+
+impl Driver {
+    pub fn with_timestamp(
+        crontab: impl TryInto<Crontab, Error = ParseError>,
+        timestamp: Timestamp,
+    ) -> Result<Self, Error> {
+        let crontab = crontab.try_into().map_err(|err| Error(err.to_string()))?;
+        Ok(Driver { crontab, timestamp })
     }
 
-    pub fn find_next_timestamp(&self, timestamp: Timestamp) -> Result<Timestamp, Error> {
-        let zoned = timestamp.to_zoned(self.timezone.clone());
+    pub fn with_timestamp_millis(
+        crontab: impl TryInto<Crontab, Error = ParseError>,
+        timestamp_millis: i64,
+    ) -> Result<Self, Error> {
+        let crontab = crontab.try_into().map_err(|err| Error(err.to_string()))?;
+        let timestamp = Timestamp::from_millisecond(timestamp_millis)
+            .map_err(time_error_with_context("failed to parse timestamp"))?;
+        Ok(Driver { crontab, timestamp })
+    }
+
+    pub fn next_zoned(&mut self) -> Result<Zoned, Error> {
+        let timestamp = self.find_next_timestamp()?;
+        self.timestamp = timestamp;
+        Ok(timestamp.to_zoned(self.crontab.timezone.clone()))
+    }
+
+    pub fn next_timestamp_millis(&mut self) -> Result<i64, Error> {
+        let timestamp = self.find_next_timestamp()?;
+        self.timestamp = timestamp;
+        Ok(timestamp.as_millisecond())
+    }
+
+    pub fn next_timestamp(&mut self) -> Result<Timestamp, Error> {
+        let timestamp = self.find_next_timestamp()?;
+        self.timestamp = timestamp;
+        Ok(timestamp)
+    }
+
+    pub fn find_next_zoned(&self) -> Result<Zoned, Error> {
+        let timezone = self.crontab.timezone.clone();
+        self.find_next_timestamp().map(|ts| ts.to_zoned(timezone))
+    }
+
+    pub fn find_next_timestamp_millis(&self) -> Result<i64, Error> {
+        self.find_next_timestamp().map(|ts| ts.as_millisecond())
+    }
+
+    pub fn find_next_timestamp(&self) -> Result<Timestamp, Error> {
+        let crontab = &self.crontab;
+
+        let zoned = self.timestamp.to_zoned(crontab.timezone.clone());
 
         // checked at most 4 years to cover the leap year case
         let bound = &zoned + 4.years();
@@ -107,35 +161,53 @@ impl Corntab {
                 )));
             }
 
-            if !self.months.matches(next.month() as u8) {
+            if !crontab.months.matches(next.month() as u8) {
                 let rest_days = next.days_in_month() - next.day() + 1;
                 next = advance_time_and_round(next, rest_days.days(), Some(Unit::Day))?;
                 continue;
             }
 
-            if !self.days_of_month.matches(next.day() as u8) {
+            // TODO(tisonkun): there is a bug in crontab to behavior differently from the next lines
+            //  when both days_of_month and days_of_week are set; figure out how to handle it:
+            //  https://crontab.guru/cron-bug.html
+
+            if !crontab.days_of_month.matches(next.day() as u8) {
                 next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
                 continue;
             }
 
-            if !self.days_of_week.matches(next.weekday() as u8) {
-                next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
-                continue;
-            }
-
-            if !self.hours.matches(next.hour() as u8) {
+            if !crontab.hours.matches(next.hour() as u8) {
                 next = advance_time_and_round(next, 1.hour(), Some(Unit::Hour))?;
                 continue;
             }
 
-            if !self.minutes.matches(next.minute() as u8) {
+            if !crontab.minutes.matches(next.minute() as u8) {
                 next = advance_time_and_round(next, 1.minute(), Some(Unit::Minute))?;
+                continue;
+            }
+
+            if !crontab.days_of_week.matches(next.weekday() as u8) {
+                next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
                 continue;
             }
 
             break Ok(next.timestamp());
         }
     }
+}
+
+pub fn find_next_timestamp_millis(
+    crontab: impl TryInto<Crontab, Error = ParseError>,
+    timestamp_millis: i64,
+) -> Result<i64, Error> {
+    Driver::with_timestamp_millis(crontab, timestamp_millis)?.find_next_timestamp_millis()
+}
+
+pub fn find_next_timestamp(
+    crontab: impl TryInto<Crontab, Error = ParseError>,
+    timestamp: Timestamp,
+) -> Result<Timestamp, Error> {
+    Driver::with_timestamp(crontab, timestamp)?.find_next_timestamp()
 }
 
 fn advance_time_and_round(zoned: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
@@ -184,18 +256,38 @@ fn setup_logging() {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use insta::assert_snapshot;
     use jiff::Timestamp;
+    use jiff::Zoned;
 
     use crate::setup_logging;
-    use crate::Corntab;
+    use crate::Crontab;
+    use crate::Driver;
+    use crate::Error;
+    use crate::ParseError;
+
+    fn find_next_zoned(
+        crontab: impl TryInto<Crontab, Error = ParseError>,
+        timestamp: Timestamp,
+    ) -> Result<Zoned, Error> {
+        Driver::with_timestamp(crontab, timestamp)?.find_next_zoned()
+    }
 
     #[test]
-    fn test_find_next() {
+    fn test_find_next_timestamp() {
         setup_logging();
 
-        let crontab = "0 0 1 1 * Asia/Shanghai".parse::<Corntab>().unwrap();
-        let timestamp = Timestamp::now();
-        let next = crontab.find_next_timestamp(timestamp).unwrap();
-        println!("next: {}", next.to_zoned(crontab.timezone.clone()));
+        let timestamp = Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
+        assert_snapshot!(find_next_zoned("0 0 1 1 * Asia/Shanghai", timestamp).unwrap(), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
+
+        let timestamp = Timestamp::from_str("2024-09-11T19:08:35+08:00").unwrap();
+        let mut driver = Driver::with_timestamp("2 4 * * * Asia/Shanghai", timestamp).unwrap();
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-12T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-13T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-14T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-15T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-16T04:02:00+08:00[Asia/Shanghai]");
     }
 }

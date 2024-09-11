@@ -9,7 +9,7 @@ use winnow::PResult;
 use winnow::Parser;
 
 use crate::sort_out_possible_values;
-use crate::Corntab;
+use crate::Crontab;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
 
@@ -21,7 +21,7 @@ pub struct ParseError(String);
 #[error("{0}")]
 struct StringContext(String);
 
-pub fn parse_crontab(input: &str) -> Result<Corntab, ParseError> {
+pub fn parse_crontab(input: &str) -> Result<Crontab, ParseError> {
     let normalized = input
         .split_ascii_whitespace()
         .filter(|part| !part.is_empty())
@@ -84,7 +84,7 @@ pub fn parse_crontab(input: &str) -> Result<Corntab, ParseError> {
         .parse(timezone_part)
         .map_err(|err| format_parse_error(&normalized, timezone_start, err))?;
 
-    Ok(Corntab {
+    Ok(Crontab {
         minutes,
         hours,
         days_of_month,
