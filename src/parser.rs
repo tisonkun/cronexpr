@@ -16,7 +16,13 @@ use std::ops::RangeInclusive;
 
 use winnow::ascii::dec_uint;
 use winnow::combinator::alt;
+use winnow::combinator::eof;
+use winnow::combinator::separated;
 use winnow::error::ContextError;
+use winnow::error::ErrMode;
+use winnow::error::ErrorKind;
+use winnow::error::FromExternalError;
+use winnow::stream::Stream;
 use winnow::token::literal;
 use winnow::token::take_while;
 use winnow::PResult;
@@ -131,7 +137,13 @@ fn format_parse_error(
 fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
     let values = alt((
         parse_asterisk_with_range(0..=59),
+        parse_number_range_in_range(0..=59)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
         parse_single_number_in_range(0..=59).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_comma_separated_list_in_range(0..=59)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
+        parse_steps_with_range(0..=59)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
     ))
     .parse_next(input)?;
     Ok(sort_out_possible_values(values))
@@ -140,7 +152,13 @@ fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
 fn parse_hours(input: &mut &str) -> PResult<PossibleLiterals> {
     let values = alt((
         parse_asterisk_with_range(0..=23),
+        parse_number_range_in_range(0..=23)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
         parse_single_number_in_range(0..=23).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_comma_separated_list_in_range(0..=23)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
+        parse_steps_with_range(0..=23)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
     ))
     .parse_next(input)?;
     Ok(sort_out_possible_values(values))
@@ -149,16 +167,45 @@ fn parse_hours(input: &mut &str) -> PResult<PossibleLiterals> {
 fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
     let values = alt((
         parse_asterisk_with_range(1..=12),
+        parse_number_range_in_range(1..=12)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
         parse_single_number_in_range(1..=12).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_comma_separated_list_in_range(1..=12)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
+        parse_steps_with_range(1..=12)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
     ))
     .parse_next(input)?;
     Ok(sort_out_possible_values(values))
 }
 
 fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
+    fn map_weekday(n: u8) -> u8 {
+        match n {
+            0 => 7,
+            1..=6 => n,
+            _ => unreachable!("weekday must be in range 0..=6"),
+        }
+    }
+
     let values = alt((
         parse_asterisk_with_range(1..=7),
-        parse_single_number_in_range(0..=7).map(|n| vec![PossibleValue::Literal(n % 7 + 1)]),
+        parse_number_range_in_range(0..=6).map(|ns| {
+            ns.into_iter()
+                .map(|n| PossibleValue::Literal(map_weekday(n)))
+                .collect()
+        }),
+        parse_single_number_in_range(0..=6).map(|n| vec![PossibleValue::Literal(map_weekday(n))]),
+        parse_comma_separated_list_in_range(0..=6).map(|ns| {
+            ns.into_iter()
+                .map(|n| PossibleValue::Literal(map_weekday(n)))
+                .collect()
+        }),
+        parse_steps_with_range(0..=6).map(|ns| {
+            ns.into_iter()
+                .map(|n| PossibleValue::Literal(map_weekday(n)))
+                .collect()
+        }),
     ))
     .parse_next(input)?;
     Ok(sort_out_possible_values(values))
@@ -167,7 +214,13 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
 fn parse_days_of_month(input: &mut &str) -> PResult<PossibleLiterals> {
     let values = alt((
         parse_asterisk_with_range(1..=31),
+        parse_number_range_in_range(1..=31)
+            .map(|values| values.into_iter().map(PossibleValue::Literal).collect()),
         parse_single_number_in_range(1..=31).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_comma_separated_list_in_range(1..=31)
+            .map(|ns| ns.into_iter().map(PossibleValue::Literal).collect()),
+        parse_steps_with_range(1..=31)
+            .map(|values| values.into_iter().map(PossibleValue::Literal).collect()),
     ))
     .parse_next(input)?;
     Ok(sort_out_possible_values(values))
@@ -175,7 +228,7 @@ fn parse_days_of_month(input: &mut &str) -> PResult<PossibleLiterals> {
 
 fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
     take_while(0.., |_| true)
-        .try_map(|timezone| {
+        .try_map_cut(|timezone| {
             jiff::tz::TimeZone::get(timezone).map_err(|_| {
                 StringContext(format!(
                     "failed to find timezone {timezone}; \
@@ -190,22 +243,196 @@ fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
 fn parse_asterisk_with_range<'a>(
     range: RangeInclusive<u8>,
 ) -> impl Parser<&'a str, Vec<PossibleValue>, ContextError> {
-    literal("*").map(move |_| range.clone().map(PossibleValue::Literal).collect())
+    (literal("*"), eof).map(move |_| range.clone().map(PossibleValue::Literal).collect())
 }
 
 fn parse_single_number_in_range<'a>(
     range: RangeInclusive<u8>,
 ) -> impl Parser<&'a str, u8, ContextError> {
-    dec_uint.try_map(move |n| {
-        if range.contains(&n) {
-            Ok(n)
-        } else {
-            Err(StringContext(format!(
-                "value must be in range {range:?}; found {n}"
-            )))
-        }
+    (dec_uint, eof)
+        .try_map_cut(move |(n, _): (u64, _)| map_single_number_in_range(n, range.clone()))
+}
+
+fn map_single_number_in_range(n: u64, range: RangeInclusive<u8>) -> Result<u8, StringContext> {
+    if n > u8::MAX as u64 {
+        return Err(StringContext(format!(
+            "value must be in range {range:?}; found {n}"
+        )));
+    }
+
+    let n = n as u8;
+    if range.contains(&n) {
+        Ok(n)
+    } else {
+        Err(StringContext(format!(
+            "value must be in range {range:?}; found {n}"
+        )))
+    }
+}
+
+fn parse_number_range_in_range<'a>(
+    range: RangeInclusive<u8>,
+) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+    (dec_uint, "-", dec_uint, eof).try_map_cut(move |(lo, _, hi, _): (u64, _, u64, _)| {
+        expand_number_range_in_range(lo, hi, range.clone()).map(|range| range.collect())
     })
 }
+
+fn expand_number_range_in_range(
+    lo: u64,
+    hi: u64,
+    range: RangeInclusive<u8>,
+) -> Result<RangeInclusive<u8>, StringContext> {
+    if lo > hi {
+        return Err(StringContext(format!(
+            "range must be in ascending order; found {lo}-{hi}"
+        )));
+    }
+
+    if lo > u8::MAX as u64 {
+        return Err(StringContext(format!(
+            "range must be in range {range:?}; found {lo}-{hi}"
+        )));
+    }
+
+    if hi > u8::MAX as u64 {
+        return Err(StringContext(format!(
+            "range must be in range {range:?}; found {lo}-{hi}"
+        )));
+    }
+
+    let lo = lo as u8;
+    let hi = hi as u8;
+    if range.contains(&lo) && range.contains(&hi) {
+        Ok(lo..=hi)
+    } else {
+        Err(StringContext(format!(
+            "range must be in range {range:?}; found {lo}-{hi}"
+        )))
+    }
+}
+
+fn parse_comma_separated_list_in_range<'a>(
+    range: RangeInclusive<u8>,
+) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+    (separated(1.., dec_uint::<_, u64, _>, ","), eof).try_map_cut(move |(ns, _): (Vec<u64>, _)| {
+        let mut values = Vec::new();
+        for n in ns {
+            let n = map_single_number_in_range(n, range.clone())?;
+            values.push(n);
+        }
+        Ok::<_, StringContext>(values)
+    })
+}
+
+fn parse_steps_with_range<'a>(
+    range: RangeInclusive<u8>,
+) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+    let range_clone_0 = range.clone();
+    let range_clone_1 = range.clone();
+    let range_clone_2 = range.clone();
+    let possible_values = alt((
+        literal("*").map(move |_| range_clone_0.clone()),
+        (dec_uint, "-", dec_uint).try_map_cut(move |(lo, _, hi): (u64, _, u64)| {
+            expand_number_range_in_range(lo, hi, range_clone_1.clone())
+        }),
+        dec_uint.try_map_cut(move |n| {
+            map_single_number_in_range(n, range_clone_2.clone()).map(|n| n..=*range_clone_2.end())
+        }),
+    ));
+
+    (possible_values, "/", dec_uint, eof).try_map_cut(
+        move |(candidates, _, step, _): (RangeInclusive<u8>, _, u64, _)| {
+            if step == 0 {
+                return Err(StringContext("step must be greater than 0".to_string()));
+            }
+
+            let step = step as u8;
+            if !range.contains(&step) {
+                return Err(StringContext(format!(
+                    "step must be in range {range:?}; found {step}"
+                )));
+            }
+
+            let mut values = Vec::new();
+            for n in candidates.step_by(step as usize) {
+                values.push(n);
+            }
+            Ok(values)
+        },
+    )
+}
+
+trait ParserExt<I, O, E>: Parser<I, O, E> {
+    #[inline(always)]
+    fn try_map_cut<G, O2, E2>(self, map: G) -> TryMapCut<Self, G, I, O, O2, E, E2>
+    where
+        Self: Sized,
+        G: FnMut(O) -> Result<O2, E2>,
+        I: Stream,
+        E: FromExternalError<I, E2>,
+    {
+        TryMapCut::new(self, map)
+    }
+}
+
+struct TryMapCut<F, G, I, O, O2, E, E2>
+where
+    F: Parser<I, O, E>,
+    G: FnMut(O) -> Result<O2, E2>,
+    I: Stream,
+    E: FromExternalError<I, E2>,
+{
+    parser: F,
+    map: G,
+    i: core::marker::PhantomData<I>,
+    o: core::marker::PhantomData<O>,
+    o2: core::marker::PhantomData<O2>,
+    e: core::marker::PhantomData<E>,
+    e2: core::marker::PhantomData<E2>,
+}
+
+impl<F, G, I, O, O2, E, E2> TryMapCut<F, G, I, O, O2, E, E2>
+where
+    F: Parser<I, O, E>,
+    G: FnMut(O) -> Result<O2, E2>,
+    I: Stream,
+    E: FromExternalError<I, E2>,
+{
+    #[inline(always)]
+    fn new(parser: F, map: G) -> Self {
+        Self {
+            parser,
+            map,
+            i: Default::default(),
+            o: Default::default(),
+            o2: Default::default(),
+            e: Default::default(),
+            e2: Default::default(),
+        }
+    }
+}
+
+impl<F, G, I, O, O2, E, E2> Parser<I, O2, E> for TryMapCut<F, G, I, O, O2, E, E2>
+where
+    F: Parser<I, O, E>,
+    G: FnMut(O) -> Result<O2, E2>,
+    I: Stream,
+    E: FromExternalError<I, E2>,
+{
+    #[inline]
+    fn parse_next(&mut self, input: &mut I) -> PResult<O2, E> {
+        let start = input.checkpoint();
+        let o = self.parser.parse_next(input)?;
+        
+        (self.map)(o).map_err(|err| {
+            input.reset(&start);
+            ErrMode::from_external_error(input, ErrorKind::Verify, err).cut()
+        })
+    }
+}
+
+impl<I, O, E, P> ParserExt<I, O, E> for P where P: Parser<I, O, E> {}
 
 #[cfg(test)]
 mod tests {
@@ -219,9 +446,30 @@ mod tests {
     fn test_parse_crontab() {
         setup_logging();
 
+        // successes
         assert_debug_snapshot!(parse_crontab("* * * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * * Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("2 4 */3 * 0-6 Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/2 1 1 1 * Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("1/2 1 1 1 * Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("1-29/2 1 1 1 * Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("1-30/2 1 1 1 * Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("1,2,10 1 1 1 * Asia/Shanghai").unwrap());
+
+        // failures
         assert_snapshot!(parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("* * * * * Unknown/Timezone").unwrap_err());
+        assert_snapshot!(parse_crontab("* 5-4 * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("10086 * * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("* 0-24 * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("* * * 25 * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("32-300 * * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("129-300 * * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("29- * * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("29 ** * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("29--30 * * * * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("1,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("104,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
     }
 }

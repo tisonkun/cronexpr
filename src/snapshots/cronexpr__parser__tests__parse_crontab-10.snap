@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"invalid 4 * * * Asia/Shanghai\").unwrap_err()"
+---
+failed to parse crontab expression:
+invalid 4 * * * Asia/Shanghai
+^ malformed expression

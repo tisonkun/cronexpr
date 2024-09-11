@@ -280,5 +280,14 @@ mod tests {
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-31T00:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-03-31T00:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-31T00:00:00+08:00[Asia/Shanghai]");
+
+        let timestamp = Timestamp::from_str("2024-09-11T19:08:35+08:00").unwrap();
+        let mut driver = Driver::with_timestamp("0 18 * * 1-5 Asia/Shanghai", timestamp).unwrap();
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-12T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-13T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-16T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-17T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-18T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-19T18:00:00+08:00[Asia/Shanghai]");
     }
 }

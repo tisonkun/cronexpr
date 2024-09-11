@@ -1,47 +1,28 @@
 ---
 source: src/parser.rs
-expression: "parse_crontab(\"2 4 */3 * 0-6 Asia/Shanghai\").unwrap()"
+expression: "parse_crontab(\"1,2,10 1 1 1 * Asia/Shanghai\").unwrap()"
 ---
 Crontab {
     minutes: PossibleLiterals {
         values: {
+            1,
             2,
+            10,
         },
     },
     hours: PossibleLiterals {
         values: {
-            4,
+            1,
         },
     },
     months: PossibleLiterals {
         values: {
             1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
         },
     },
     days_of_month: PossibleLiterals {
         values: {
             1,
-            4,
-            7,
-            10,
-            13,
-            16,
-            19,
-            22,
-            25,
-            28,
-            31,
         },
     },
     days_of_week: PossibleLiterals {

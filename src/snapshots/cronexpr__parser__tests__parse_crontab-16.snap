@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"32-300 * * * * Asia/Shanghai\").unwrap_err()"
+---
+failed to parse crontab expression:
+32-300 * * * * Asia/Shanghai
+^ range must be in range 0..=59; found 32-300
