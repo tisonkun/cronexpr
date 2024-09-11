@@ -1,0 +1,24 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"2 4 * * * Asia/Shanghai\").unwrap()"
+---
+Corntab {
+    minutes: PossibleValues(
+        {
+            2,
+        },
+    ),
+    hours: PossibleValues(
+        {
+            4,
+        },
+    ),
+    days_of_month: Asterisk,
+    months: Asterisk,
+    days_of_week: Asterisk,
+    timezone: TimeZone(
+        TZif(
+            "Asia/Shanghai",
+        ),
+    ),
+}

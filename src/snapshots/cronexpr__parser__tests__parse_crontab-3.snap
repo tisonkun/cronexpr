@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"* * * * * Unknown/Timezone\").unwrap_err()"
+---
+failed to parse crontab expression:
+* * * * * Unknown/Timezone
+          ^ failed to find timezone Unknown/Timezone; for a list of time zones, see the list of tz database time zones on Wikipedia: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List

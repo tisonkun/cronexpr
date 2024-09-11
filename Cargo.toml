@@ -30,3 +30,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 jiff = { version = "0.1.13" }
+log = { version = "0.4.22" }
+thiserror = { version = "1.0.63" }
+winnow = { version = "0.6.18" }
+
+[dev-dependencies]
+insta = { version = "1.40.0" }
+logforth = { version = "0.11.2", features = ["env-filter"] }
