@@ -196,20 +196,6 @@ impl Driver {
     }
 }
 
-pub fn find_next_timestamp_millis(
-    crontab: impl TryInto<Crontab, Error = ParseError>,
-    timestamp_millis: i64,
-) -> Result<i64, Error> {
-    Driver::with_timestamp_millis(crontab, timestamp_millis)?.find_next_timestamp_millis()
-}
-
-pub fn find_next_timestamp(
-    crontab: impl TryInto<Crontab, Error = ParseError>,
-    timestamp: Timestamp,
-) -> Result<Timestamp, Error> {
-    Driver::with_timestamp(crontab, timestamp)?.find_next_timestamp()
-}
-
 fn advance_time_and_round(zoned: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
     let mut next = zoned;
 
@@ -260,27 +246,17 @@ mod tests {
 
     use insta::assert_snapshot;
     use jiff::Timestamp;
-    use jiff::Zoned;
 
     use crate::setup_logging;
-    use crate::Crontab;
     use crate::Driver;
-    use crate::Error;
-    use crate::ParseError;
-
-    fn find_next_zoned(
-        crontab: impl TryInto<Crontab, Error = ParseError>,
-        timestamp: Timestamp,
-    ) -> Result<Zoned, Error> {
-        Driver::with_timestamp(crontab, timestamp)?.find_next_zoned()
-    }
 
     #[test]
     fn test_find_next_timestamp() {
         setup_logging();
 
         let timestamp = Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
-        assert_snapshot!(find_next_zoned("0 0 1 1 * Asia/Shanghai", timestamp).unwrap(), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
+        let driver = Driver::with_timestamp("0 0 1 1 * Asia/Shanghai", timestamp).unwrap();
+        assert_snapshot!(driver.find_next_zoned().unwrap(), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
 
         let timestamp = Timestamp::from_str("2024-09-11T19:08:35+08:00").unwrap();
         let mut driver = Driver::with_timestamp("2 4 * * * Asia/Shanghai", timestamp).unwrap();
