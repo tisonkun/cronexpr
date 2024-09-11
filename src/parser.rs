@@ -1,22 +1,17 @@
-use std::collections::BTreeSet;
-use std::fmt;
-use std::ops::RangeBounds;
+use std::ops::RangeInclusive;
 
-use winnow::ascii::digit1;
+use winnow::ascii::dec_uint;
 use winnow::combinator::alt;
-use winnow::combinator::cut_err;
 use winnow::error::ContextError;
 use winnow::token::literal;
 use winnow::token::take_while;
 use winnow::PResult;
 use winnow::Parser;
 
+use crate::sort_out_possible_values;
 use crate::Corntab;
-use crate::DayOfMonthExpr;
-use crate::DayOfWeekExpr;
-use crate::HourExpr;
-use crate::MinuteExpr;
-use crate::MonthExpr;
+use crate::PossibleLiterals;
+use crate::PossibleValue;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{0}")]
@@ -111,7 +106,7 @@ fn format_parse_error(
 
     let error = parse_error.into_inner().to_string();
     let error = if error.is_empty() {
-        "unexpected character"
+        "malformed expression"
     } else {
         &error
     };
@@ -119,75 +114,49 @@ fn format_parse_error(
     ParseError(format!("{context}:\n{input}\n{indent}^ {error}"))
 }
 
-fn parse_minutes(input: &mut &str) -> PResult<MinuteExpr> {
-    fn match_asterisk(input: &mut &str) -> PResult<MinuteExpr> {
-        literal("*").parse_next(input).map(|_| MinuteExpr::Asterisk)
-    }
-
-    fn match_single_number(input: &mut &str) -> PResult<MinuteExpr> {
-        parse_single_number_in_range(input, 0..=59)
-            .map(|minute| MinuteExpr::PossibleValues(BTreeSet::from_iter(vec![minute])))
-    }
-
-    alt((match_asterisk, match_single_number)).parse_next(input)
+fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
+    let values = alt((
+        parse_asterisk_with_range(0..=59),
+        parse_single_number_in_range(0..=59).map(|n| vec![PossibleValue::Literal(n)]),
+    ))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
-fn parse_hours(input: &mut &str) -> PResult<HourExpr> {
-    fn match_asterisk(input: &mut &str) -> PResult<HourExpr> {
-        literal("*").parse_next(input).map(|_| HourExpr::Asterisk)
-    }
-
-    fn match_single_number(input: &mut &str) -> PResult<HourExpr> {
-        parse_single_number_in_range(input, 0..=23)
-            .map(|hour| HourExpr::PossibleValues(BTreeSet::from_iter(vec![hour])))
-    }
-
-    alt((match_asterisk, match_single_number)).parse_next(input)
+fn parse_hours(input: &mut &str) -> PResult<PossibleLiterals> {
+    let values = alt((
+        parse_asterisk_with_range(0..=23),
+        parse_single_number_in_range(0..=23).map(|n| vec![PossibleValue::Literal(n)]),
+    ))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
-fn parse_months(input: &mut &str) -> PResult<MonthExpr> {
-    fn match_asterisk(input: &mut &str) -> PResult<MonthExpr> {
-        literal("*").parse_next(input).map(|_| MonthExpr::Asterisk)
-    }
-
-    fn match_single_number(input: &mut &str) -> PResult<MonthExpr> {
-        parse_single_number_in_range(input, 1..=12)
-            .map(|month| MonthExpr::PossibleValues(BTreeSet::from_iter(vec![month])))
-    }
-
-    alt((match_asterisk, match_single_number)).parse_next(input)
+fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
+    let values = alt((
+        parse_asterisk_with_range(1..=12),
+        parse_single_number_in_range(1..=12).map(|n| vec![PossibleValue::Literal(n)]),
+    ))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
-fn parse_days_of_week(input: &mut &str) -> PResult<DayOfWeekExpr> {
-    fn match_asterisk(input: &mut &str) -> PResult<DayOfWeekExpr> {
-        literal("*")
-            .parse_next(input)
-            .map(|_| DayOfWeekExpr::Asterisk)
-    }
-
-    fn match_single_number(input: &mut &str) -> PResult<DayOfWeekExpr> {
-        parse_single_number_in_range(input, 0..=6).map(|day_of_week| {
-            DayOfWeekExpr::PossibleValues(BTreeSet::from_iter(vec![day_of_week]))
-        })
-    }
-
-    alt((match_asterisk, match_single_number)).parse_next(input)
+fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
+    let values = alt((
+        parse_asterisk_with_range(1..=7),
+        parse_single_number_in_range(0..=7).map(|n| vec![PossibleValue::Literal(n % 7 + 1)]),
+    ))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
-fn parse_days_of_month(input: &mut &str) -> PResult<DayOfMonthExpr> {
-    fn match_asterisk(input: &mut &str) -> PResult<DayOfMonthExpr> {
-        literal("*")
-            .parse_next(input)
-            .map(|_| DayOfMonthExpr::Asterisk)
-    }
-
-    fn match_single_number(input: &mut &str) -> PResult<DayOfMonthExpr> {
-        parse_single_number_in_range(input, 1..=31).map(|day_of_month| {
-            DayOfMonthExpr::PossibleValues(BTreeSet::from_iter(vec![day_of_month]))
-        })
-    }
-
-    alt((match_asterisk, match_single_number)).parse_next(input)
+fn parse_days_of_month(input: &mut &str) -> PResult<PossibleLiterals> {
+    let values = alt((
+        parse_asterisk_with_range(1..=31),
+        parse_single_number_in_range(1..=31).map(|n| vec![PossibleValue::Literal(n)]),
+    ))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
 fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
@@ -204,21 +173,24 @@ fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
         .parse_next(input)
 }
 
-fn parse_single_number_in_range<Range>(input: &mut &str, range: Range) -> PResult<u8>
-where
-    Range: RangeBounds<u8> + fmt::Debug,
-{
-    let verifier = take_while(0.., |_| true).try_map(|n: &str| {
-        let make_error = || StringContext(format!("value must be in range {range:?}; found {n}"));
-        let n = n.parse::<u8>().map_err(|_| make_error())?;
+fn parse_asterisk_with_range<'a>(
+    range: RangeInclusive<u8>,
+) -> impl Parser<&'a str, Vec<PossibleValue>, ContextError> {
+    literal("*").map(move |_| range.clone().map(PossibleValue::Literal).collect())
+}
+
+fn parse_single_number_in_range<'a>(
+    range: RangeInclusive<u8>,
+) -> impl Parser<&'a str, u8, ContextError> {
+    dec_uint.try_map(move |n| {
         if range.contains(&n) {
             Ok(n)
         } else {
-            Err(make_error())
+            Err(StringContext(format!(
+                "value must be in range {range:?}; found {n}"
+            )))
         }
-    });
-
-    digit1.and_then(cut_err(verifier)).parse_next(input)
+    })
 }
 
 #[cfg(test)]
@@ -233,6 +205,7 @@ mod tests {
     fn test_parse_crontab() {
         setup_logging();
 
+        assert_debug_snapshot!(parse_crontab("* * * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * * Asia/Shanghai").unwrap());
         assert_snapshot!(parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("* * * * * Unknown/Timezone").unwrap_err());

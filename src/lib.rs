@@ -15,11 +15,14 @@
 extern crate core;
 
 use std::collections::BTreeSet;
-use std::ops::Add;
 use std::str::FromStr;
 
 use jiff::tz::TimeZone;
-use jiff::{Span, Timestamp, ToSpan, Unit, Zoned};
+use jiff::Span;
+use jiff::Timestamp;
+use jiff::ToSpan;
+use jiff::Unit;
+use jiff::Zoned;
 
 mod parser;
 pub use parser::parse_crontab;
@@ -31,42 +34,44 @@ pub struct Error(String);
 
 #[derive(Debug)]
 pub struct Corntab {
-    minutes: MinuteExpr,
-    hours: HourExpr,
-    days_of_month: DayOfMonthExpr,
-    months: MonthExpr,
-    days_of_week: DayOfWeekExpr,
+    minutes: PossibleLiterals,
+    hours: PossibleLiterals,
+    months: PossibleLiterals,
+    days_of_month: PossibleLiterals,
+    days_of_week: PossibleLiterals,
     timezone: TimeZone,
 }
 
 #[derive(Debug)]
-enum MinuteExpr {
-    Asterisk,
-    PossibleValues(BTreeSet<u8>),
+enum PossibleValue {
+    Literal(u8),
+    // TODO(tisonkun): work out whether these extensions are valuable
+    //  https://en.wikipedia.org/wiki/Cron#Non-standard_characters
+    //
+    // NearestWeekday(u8),
+    // LastDayOfWeek(Weekday),
+    // NthDayOfWeek(u8, Weekday),
+}
+
+fn sort_out_possible_values(values: Vec<PossibleValue>) -> PossibleLiterals {
+    let literals = values
+        .into_iter()
+        .map(|value| match value {
+            PossibleValue::Literal(value) => value,
+        })
+        .collect();
+    PossibleLiterals { values: literals }
 }
 
 #[derive(Debug)]
-enum HourExpr {
-    Asterisk,
-    PossibleValues(BTreeSet<u8>),
+struct PossibleLiterals {
+    values: BTreeSet<u8>,
 }
 
-#[derive(Debug)]
-enum MonthExpr {
-    Asterisk,
-    PossibleValues(BTreeSet<u8>),
-}
-
-#[derive(Debug)]
-enum DayOfWeekExpr {
-    Asterisk,
-    PossibleValues(BTreeSet<u8>),
-}
-
-#[derive(Debug)]
-enum DayOfMonthExpr {
-    Asterisk,
-    PossibleValues(BTreeSet<u8>),
+impl PossibleLiterals {
+    fn matches(&self, value: u8) -> bool {
+        self.values.contains(&value)
+    }
 }
 
 impl FromStr for Corntab {
@@ -102,45 +107,30 @@ impl Corntab {
                 )));
             }
 
-            match &self.months {
-                MonthExpr::Asterisk => {}
-                MonthExpr::PossibleValues(months) => {
-                    if !months.contains(&(next.month() as u8)) {
-                        let rest_days = next.days_in_month() - next.day() + 1;
-                        next = advance_time_and_round(next, rest_days.days(), Some(Unit::Day))?;
-                        continue;
-                    }
-                }
+            if !self.months.matches(next.month() as u8) {
+                let rest_days = next.days_in_month() - next.day() + 1;
+                next = advance_time_and_round(next, rest_days.days(), Some(Unit::Day))?;
+                continue;
             }
 
-            match &self.days_of_month {
-                DayOfMonthExpr::Asterisk => {}
-                DayOfMonthExpr::PossibleValues(dom) => {
-                    if !dom.contains(&(next.day() as u8)) {
-                        next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
-                        continue;
-                    }
-                }
+            if !self.days_of_month.matches(next.day() as u8) {
+                next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
+                continue;
             }
 
-            match &self.hours {
-                HourExpr::Asterisk => {}
-                HourExpr::PossibleValues(dom) => {
-                    if !dom.contains(&(next.hour() as u8)) {
-                        next = advance_time_and_round(next, 1.hour(), Some(Unit::Hour))?;
-                        continue;
-                    }
-                }
+            if !self.days_of_week.matches(next.weekday() as u8) {
+                next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
+                continue;
             }
 
-            match &self.minutes {
-                MinuteExpr::Asterisk => {}
-                MinuteExpr::PossibleValues(dom) => {
-                    if !dom.contains(&(next.minute() as u8)) {
-                        next = advance_time_and_round(next, 1.minute(), Some(Unit::Minute))?;
-                        continue;
-                    }
-                }
+            if !self.hours.matches(next.hour() as u8) {
+                next = advance_time_and_round(next, 1.hour(), Some(Unit::Hour))?;
+                continue;
+            }
+
+            if !self.minutes.matches(next.minute() as u8) {
+                next = advance_time_and_round(next, 1.minute(), Some(Unit::Minute))?;
+                continue;
             }
 
             break Ok(next.timestamp());
@@ -178,15 +168,18 @@ fn setup_logging() {
     use logforth::Dispatch;
     use logforth::Logger;
 
-    Logger::new()
-        .dispatch(
-            Dispatch::new()
-                .filter(EnvFilter::from_default_env_or("DEBUG"))
-                .layout(TextLayout::default())
-                .append(append::Stderr),
-        )
-        .apply()
-        .unwrap();
+    static SETUP_LOGGING: std::sync::Once = std::sync::Once::new();
+    SETUP_LOGGING.call_once(|| {
+        Logger::new()
+            .dispatch(
+                Dispatch::new()
+                    .filter(EnvFilter::from_default_env_or("DEBUG"))
+                    .layout(TextLayout::default())
+                    .append(append::Stderr),
+            )
+            .apply()
+            .unwrap();
+    });
 }
 
 #[cfg(test)]
