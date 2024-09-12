@@ -315,14 +315,15 @@ fn expand_number_range_in_range(
 fn parse_comma_separated_list_in_range<'a>(
     range: RangeInclusive<u8>,
 ) -> impl Parser<&'a str, Vec<u8>, ContextError> {
-    (separated(1.., dec_uint::<_, u64, _>, ","), eof).try_map_cut(move |(ns, _): (Vec<u64>, _)| {
-        let mut values = Vec::new();
-        for n in ns {
-            let n = map_single_number_in_range(n, range.clone())?;
-            values.push(n);
-        }
-        Ok::<_, StringContext>(values)
-    })
+    (
+        separated(
+            1..,
+            dec_uint.try_map_cut(move |n| map_single_number_in_range(n, range.clone())),
+            ",",
+        ),
+        eof,
+    )
+        .map(move |(ns, _): (Vec<u8>, _)| ns)
 }
 
 fn parse_steps_with_range<'a>(
@@ -424,7 +425,7 @@ where
     fn parse_next(&mut self, input: &mut I) -> PResult<O2, E> {
         let start = input.checkpoint();
         let o = self.parser.parse_next(input)?;
-        
+
         (self.map)(o).map_err(|err| {
             input.reset(&start);
             ErrMode::from_external_error(input, ErrorKind::Verify, err).cut()
@@ -471,5 +472,6 @@ mod tests {
         assert_snapshot!(parse_crontab("29--30 * * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("104,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("1,2,10 * * 104,2,10,100 * Asia/Shanghai").unwrap_err());
     }
 }

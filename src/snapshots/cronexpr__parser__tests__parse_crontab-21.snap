@@ -4,4 +4,4 @@ expression: "parse_crontab(\"1,2,10,100 1 1 1 * Asia/Shanghai\").unwrap_err()"
 ---
 failed to parse crontab expression:
 1,2,10,100 1 1 1 * Asia/Shanghai
-^ value must be in range 0..=59; found 100
+       ^ value must be in range 0..=59; found 100
