@@ -1,9 +1,19 @@
 ---
 source: src/parser.rs
-expression: "parse_crontab(\"1-10,2,10,50 1 1 1 * Asia/Shanghai\").unwrap()"
+expression: "parse_crontab(\"0 0 1 * * UTC\").unwrap()"
 ---
 Crontab {
     minutes: PossibleLiterals {
+        values: {
+            0,
+        },
+    },
+    hours: PossibleLiterals {
+        values: {
+            0,
+        },
+    },
+    months: PossibleLiterals {
         values: {
             1,
             2,
@@ -15,17 +25,8 @@ Crontab {
             8,
             9,
             10,
-            50,
-        },
-    },
-    hours: PossibleLiterals {
-        values: {
-            1,
-        },
-    },
-    months: PossibleLiterals {
-        values: {
-            1,
+            11,
+            12,
         },
     },
     days_of_month: PossibleLiterals {
@@ -45,8 +46,6 @@ Crontab {
         },
     },
     timezone: TimeZone(
-        TZif(
-            "Asia/Shanghai",
-        ),
+        "UTC",
     ),
 }

@@ -1,7 +1,7 @@
 ---
 source: src/parser.rs
-expression: "parse_crontab(\"29 ** * * * Asia/Shanghai\").unwrap_err()"
+expression: "parse_crontab(\"29- * * * * Asia/Shanghai\").unwrap_err()"
 ---
 failed to parse crontab expression:
-29 ** * * * Asia/Shanghai
-    ^ malformed expression
+29- * * * * Asia/Shanghai
+  ^ malformed expression

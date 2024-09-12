@@ -1,26 +1,16 @@
 ---
 source: src/parser.rs
-expression: "parse_crontab(\"1-10,2,10,50 1 1 1 * Asia/Shanghai\").unwrap()"
+expression: "parse_crontab(\"0 0 1 1 * UTC\").unwrap()"
 ---
 Crontab {
     minutes: PossibleLiterals {
         values: {
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            50,
+            0,
         },
     },
     hours: PossibleLiterals {
         values: {
-            1,
+            0,
         },
     },
     months: PossibleLiterals {
@@ -45,8 +35,6 @@ Crontab {
         },
     },
     timezone: TimeZone(
-        TZif(
-            "Asia/Shanghai",
-        ),
+        "UTC",
     ),
 }

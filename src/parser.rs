@@ -180,6 +180,10 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
 }
 
 fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
+    // TODO(tisonkun): figure out whether to support
+    //  (1) 7 as Sunday (then what 0-7 means? is days_of_week range a loop?)
+    //  (2) MON, TUE, ... literals
+
     fn map_weekday(n: u8) -> u8 {
         match n {
             0 => 7,
@@ -315,15 +319,25 @@ fn expand_number_range_in_range(
 fn parse_comma_separated_list_in_range<'a>(
     range: RangeInclusive<u8>,
 ) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+    let range_clone_0 = range.clone();
+    let range_clone_1 = range.clone();
     (
         separated(
             1..,
-            dec_uint.try_map_cut(move |n| map_single_number_in_range(n, range.clone())),
+            alt((
+                (dec_uint, "-", dec_uint).try_map_cut(move |(lo, _, hi): (u64, _, u64)| {
+                    expand_number_range_in_range(lo, hi, range_clone_0.clone())
+                        .map(|range| range.collect())
+                }),
+                dec_uint.try_map_cut(move |n| {
+                    map_single_number_in_range(n, range_clone_1.clone()).map(|n| vec![n])
+                }),
+            )),
             ",",
         ),
         eof,
     )
-        .map(move |(ns, _): (Vec<u8>, _)| ns)
+        .map(move |(ns, _): (Vec<Vec<u8>>, _)| ns.into_iter().flatten().collect())
 }
 
 fn parse_steps_with_range<'a>(
@@ -447,7 +461,7 @@ mod tests {
     fn test_parse_crontab() {
         setup_logging();
 
-        // successes
+        // old cases - since insta name anon cases by order, let's leave it as is
         assert_debug_snapshot!(parse_crontab("* * * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap());
@@ -457,8 +471,7 @@ mod tests {
         assert_debug_snapshot!(parse_crontab("1-29/2 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1-30/2 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1,2,10 1 1 1 * Asia/Shanghai").unwrap());
-
-        // failures
+        assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 1 1 * Asia/Shanghai").unwrap());
         assert_snapshot!(parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("* * * * * Unknown/Timezone").unwrap_err());
         assert_snapshot!(parse_crontab("* 5-4 * * * Asia/Shanghai").unwrap_err());
@@ -473,5 +486,51 @@ mod tests {
         assert_snapshot!(parse_crontab("1,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("104,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1,2,10 * * 104,2,10,100 * Asia/Shanghai").unwrap_err());
+    }
+
+    #[test]
+    fn test_crontab_guru_examples() {
+        // crontab.guru examples: https://crontab.guru/examples.html
+
+        assert_debug_snapshot!(parse_crontab("* * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/2 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("1-59/2 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/3 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/4 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/5 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/6 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/10 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/15 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/20 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("*/30 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("30 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 * * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 */2 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 */3 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 */4 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 */6 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 */8 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 */12 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 9-17 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 1 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 2 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 8 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 9 * * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 0 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 1 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 2 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 3 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 4 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 5 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 6 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 1-5 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 * * 6,0 UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 1 * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 1 * * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 1 */2 * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 1 */3 * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 1 */6 * UTC").unwrap());
+        assert_debug_snapshot!(parse_crontab("0 0 1 1 * UTC").unwrap());
     }
 }
