@@ -41,12 +41,16 @@ pub struct ParseError(String);
 #[error("{0}")]
 struct StringContext(String);
 
-pub fn parse_crontab(input: &str) -> Result<Crontab, ParseError> {
-    let normalized = input
+pub fn normalize_crontab(input: &str) -> String {
+    input
         .split_ascii_whitespace()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
-        .join(" ");
+        .join(" ")
+}
+
+pub fn parse_crontab(input: &str) -> Result<Crontab, ParseError> {
+    let normalized = normalize_crontab(input);
 
     log::debug!("normalized input {input:?} to {normalized:?}");
 

@@ -25,6 +25,7 @@ use jiff::Unit;
 use jiff::Zoned;
 
 mod parser;
+pub use parser::normalize_crontab;
 pub use parser::parse_crontab;
 pub use parser::ParseError;
 
