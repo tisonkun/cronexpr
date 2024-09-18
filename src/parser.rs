@@ -41,6 +41,20 @@ pub struct ParseError(String);
 #[error("{0}")]
 struct StringContext(String);
 
+/// Normalize a crontab expression to compact form.
+///
+/// ```rust
+/// use cronexpr::normalize_crontab;
+///
+/// assert_eq!(
+///     normalize_crontab("  *   * * * * Asia/Shanghai  "),
+///     "* * * * * Asia/Shanghai"
+/// );
+/// assert_eq!(
+///     normalize_crontab("  2\t4 * * *\nAsia/Shanghai  "),
+///     "2 4 * * * Asia/Shanghai"
+/// );
+/// ```
 pub fn normalize_crontab(input: &str) -> String {
     input
         .split_ascii_whitespace()
@@ -49,6 +63,16 @@ pub fn normalize_crontab(input: &str) -> String {
         .join(" ")
 }
 
+/// Parse a crontab expression to [`Crontab`].
+///
+/// ```rust
+/// use cronexpr::parse_crontab;
+///
+/// parse_crontab("* * * * * Asia/Shanghai").unwrap();
+/// parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
+/// parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap();
+/// parse_crontab("2 4 */3 * 0-6 Asia/Shanghai").unwrap();
+/// ```
 pub fn parse_crontab(input: &str) -> Result<Crontab, ParseError> {
     let normalized = normalize_crontab(input);
 

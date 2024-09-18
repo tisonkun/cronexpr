@@ -12,7 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-extern crate core;
+//! # Crontab
+//!
+//! A library to parse and drive the crontab expression.
+//!
+//! ```rust
+//! use std::str::FromStr;
+//!
+//! // with jiff timestamp
+//! let timestamp = jiff::Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
+//! let crontab = cronexpr::Crontab::from_str("0 0 1 1 * Asia/Shanghai").unwrap();
+//! let driver = crontab.drive_with_timestamp(timestamp);
+//! assert_eq!(driver.find_next_timestamp().unwrap().as_millisecond(), 1735660800000);
+//!
+//! // for compatibility, bridge by timestamp milliseconds (crontab support at most second level so it's fine)
+//! let crontab: cronexpr::Crontab = "2 4 * * * Asia/Shanghai".parse().unwrap();
+//! let driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
+//! assert_eq!(driver.find_next_timestamp_millis().unwrap(), 1704052920000);
+//!
+//! // can also be used as an iterator
+//! let crontab: cronexpr::Crontab = "2 4 * * * Asia/Shanghai".parse().unwrap();
+//! let mut driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
+//! assert_eq!(driver.next_timestamp_millis().unwrap(), 1704052920000);
+//! assert_eq!(driver.next_timestamp_millis().unwrap(), 1704139320000);
+//! assert_eq!(driver.next_timestamp_millis().unwrap(), 1704225720000);
+//! ```
 
 use std::collections::BTreeSet;
 use std::str::FromStr;
@@ -33,6 +57,13 @@ pub use parser::ParseError;
 #[error("{0}")]
 pub struct Error(String);
 
+/// A data struct representing the crontab expression.
+///
+/// Get a driver to find the next timestamp or iterate the next timestamps, by
+/// calling [drive_with_timestamp] or [drive_with_timestamp_millis].
+///
+/// [drive_with_timestamp]: Crontab::drive_with_timestamp
+/// [drive_with_timestamp_millis]: Crontab::drive_with_timestamp_millis
 #[derive(Debug)]
 pub struct Crontab {
     minutes: PossibleLiterals,
@@ -91,6 +122,26 @@ impl<'a> TryFrom<&'a str> for Crontab {
     }
 }
 
+impl Crontab {
+    /// Create a driver with the given crontab and [`Timestamp`].
+    pub fn drive_with_timestamp(self, timestamp: Timestamp) -> Driver {
+        let crontab = self;
+        Driver { crontab, timestamp }
+    }
+
+    /// Create a driver with the given crontab and timestamp in milliseconds.
+    pub fn drive_with_timestamp_millis(self, timestamp_millis: i64) -> Result<Driver, Error> {
+        let timestamp = Timestamp::from_millisecond(timestamp_millis)
+            .map_err(time_error_with_context("failed to parse timestamp"))?;
+        Ok(self.drive_with_timestamp(timestamp))
+    }
+}
+
+/// Driver to find the next timestamp from the given crontab and timestamp,
+/// or iterate the next timestamps.
+///
+/// Call [Crontab::drive_with_timestamp] or [Crontab::drive_with_timestamp_millis]
+/// to obtain an instance of [`Driver`].
 #[derive(Debug)]
 pub struct Driver {
     crontab: Crontab,
@@ -98,51 +149,39 @@ pub struct Driver {
 }
 
 impl Driver {
-    pub fn with_timestamp(
-        crontab: impl TryInto<Crontab, Error = ParseError>,
-        timestamp: Timestamp,
-    ) -> Result<Self, Error> {
-        let crontab = crontab.try_into().map_err(|err| Error(err.to_string()))?;
-        Ok(Driver { crontab, timestamp })
-    }
-
-    pub fn with_timestamp_millis(
-        crontab: impl TryInto<Crontab, Error = ParseError>,
-        timestamp_millis: i64,
-    ) -> Result<Self, Error> {
-        let crontab = crontab.try_into().map_err(|err| Error(err.to_string()))?;
-        let timestamp = Timestamp::from_millisecond(timestamp_millis)
-            .map_err(time_error_with_context("failed to parse timestamp"))?;
-        Ok(Driver { crontab, timestamp })
-    }
-
+    /// Iterate to the next timestamp as a [`Zoned`] struct.
     pub fn next_zoned(&mut self) -> Result<Zoned, Error> {
         let timestamp = self.find_next_timestamp()?;
         self.timestamp = timestamp;
         Ok(timestamp.to_zoned(self.crontab.timezone.clone()))
     }
 
+    /// Iterate to the next timestamp as milliseconds.
     pub fn next_timestamp_millis(&mut self) -> Result<i64, Error> {
         let timestamp = self.find_next_timestamp()?;
         self.timestamp = timestamp;
         Ok(timestamp.as_millisecond())
     }
 
+    /// Iterate to the next timestamp as a [`Timestamp`] struct.
     pub fn next_timestamp(&mut self) -> Result<Timestamp, Error> {
         let timestamp = self.find_next_timestamp()?;
         self.timestamp = timestamp;
         Ok(timestamp)
     }
 
+    /// Find the next timestamp as a [`Zoned`] struct.
     pub fn find_next_zoned(&self) -> Result<Zoned, Error> {
         let timezone = self.crontab.timezone.clone();
         self.find_next_timestamp().map(|ts| ts.to_zoned(timezone))
     }
 
+    /// Find the next timestamp as milliseconds.
     pub fn find_next_timestamp_millis(&self) -> Result<i64, Error> {
         self.find_next_timestamp().map(|ts| ts.as_millisecond())
     }
 
+    /// Find the next timestamp as a [`Timestamp`] struct.
     pub fn find_next_timestamp(&self) -> Result<Timestamp, Error> {
         let crontab = &self.crontab;
 
@@ -249,26 +288,30 @@ mod tests {
     use jiff::Timestamp;
 
     use crate::setup_logging;
+    use crate::Crontab;
     use crate::Driver;
+
+    fn make_driver(crontab: &str, timestamp: &str) -> Driver {
+        let timestamp = Timestamp::from_str(timestamp).unwrap();
+        let crontab = Crontab::from_str(crontab).unwrap();
+        crontab.drive_with_timestamp(timestamp)
+    }
 
     #[test]
     fn test_next_timestamp() {
         setup_logging();
 
-        let timestamp = Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
-        let driver = Driver::with_timestamp("0 0 1 1 * Asia/Shanghai", timestamp).unwrap();
+        let driver = make_driver("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
         assert_snapshot!(driver.find_next_zoned().unwrap(), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
 
-        let timestamp = Timestamp::from_str("2024-09-11T19:08:35+08:00").unwrap();
-        let mut driver = Driver::with_timestamp("2 4 * * * Asia/Shanghai", timestamp).unwrap();
+        let mut driver = make_driver("2 4 * * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-12T04:02:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-13T04:02:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-14T04:02:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-15T04:02:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-16T04:02:00+08:00[Asia/Shanghai]");
 
-        let timestamp = Timestamp::from_str("2024-09-11T19:08:35+08:00").unwrap();
-        let mut driver = Driver::with_timestamp("0 0 31 * * Asia/Shanghai", timestamp).unwrap();
+        let mut driver = make_driver("0 0 31 * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-31T00:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-31T00:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T00:00:00+08:00[Asia/Shanghai]");
@@ -282,8 +325,7 @@ mod tests {
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-03-31T00:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-31T00:00:00+08:00[Asia/Shanghai]");
 
-        let timestamp = Timestamp::from_str("2024-09-11T19:08:35+08:00").unwrap();
-        let mut driver = Driver::with_timestamp("0 18 * * 1-5 Asia/Shanghai", timestamp).unwrap();
+        let mut driver = make_driver("0 18 * * 1-5 Asia/Shanghai", "2024-09-11T19:08:35+08:00");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-12T18:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-13T18:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-16T18:00:00+08:00[Asia/Shanghai]");
