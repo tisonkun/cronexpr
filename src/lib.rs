@@ -51,7 +51,6 @@ use jiff::Zoned;
 mod parser;
 pub use parser::normalize_crontab;
 pub use parser::parse_crontab;
-pub use parser::ParseError;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{0}")]
@@ -107,7 +106,7 @@ impl PossibleLiterals {
 }
 
 impl FromStr for Crontab {
-    type Err = ParseError;
+    type Err = Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         parse_crontab(input)
@@ -115,7 +114,7 @@ impl FromStr for Crontab {
 }
 
 impl<'a> TryFrom<&'a str> for Crontab {
-    type Error = ParseError;
+    type Error = Error;
 
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
         FromStr::from_str(input)

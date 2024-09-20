@@ -30,16 +30,9 @@ use winnow::Parser;
 
 use crate::sort_out_possible_values;
 use crate::Crontab;
+use crate::Error;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
-
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{0}")]
-pub struct ParseError(String);
-
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{0}")]
-struct StringContext(String);
 
 /// Normalize a crontab expression to compact form.
 ///
@@ -73,7 +66,7 @@ pub fn normalize_crontab(input: &str) -> String {
 /// parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap();
 /// parse_crontab("2 4 */3 * 0-6 Asia/Shanghai").unwrap();
 /// ```
-pub fn parse_crontab(input: &str) -> Result<Crontab, ParseError> {
+pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     let normalized = normalize_crontab(input);
 
     log::debug!("normalized input {input:?} to {normalized:?}");
@@ -146,7 +139,7 @@ fn format_parse_error(
     input: &str,
     start: usize,
     parse_error: winnow::error::ParseError<&str, ContextError>,
-) -> ParseError {
+) -> Error {
     let context = "failed to parse crontab expression";
 
     let offset = start + parse_error.offset();
@@ -159,7 +152,7 @@ fn format_parse_error(
         &error
     };
 
-    ParseError(format!("{context}:\n{input}\n{indent}^ {error}"))
+    Error(format!("{context}:\n{input}\n{indent}^ {error}"))
 }
 
 fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
@@ -262,7 +255,7 @@ fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
     take_while(0.., |_| true)
         .try_map_cut(|timezone| {
             jiff::tz::TimeZone::get(timezone).map_err(|_| {
-                StringContext(format!(
+                Error(format!(
                     "failed to find timezone {timezone}; \
                 for a list of time zones, see the list of tz database time zones on Wikipedia: \
                 https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List"
@@ -285,9 +278,9 @@ fn parse_single_number_in_range<'a>(
         .try_map_cut(move |(n, _): (u64, _)| map_single_number_in_range(n, range.clone()))
 }
 
-fn map_single_number_in_range(n: u64, range: RangeInclusive<u8>) -> Result<u8, StringContext> {
+fn map_single_number_in_range(n: u64, range: RangeInclusive<u8>) -> Result<u8, Error> {
     if n > u8::MAX as u64 {
-        return Err(StringContext(format!(
+        return Err(Error(format!(
             "value must be in range {range:?}; found {n}"
         )));
     }
@@ -296,7 +289,7 @@ fn map_single_number_in_range(n: u64, range: RangeInclusive<u8>) -> Result<u8, S
     if range.contains(&n) {
         Ok(n)
     } else {
-        Err(StringContext(format!(
+        Err(Error(format!(
             "value must be in range {range:?}; found {n}"
         )))
     }
@@ -314,21 +307,21 @@ fn expand_number_range_in_range(
     lo: u64,
     hi: u64,
     range: RangeInclusive<u8>,
-) -> Result<RangeInclusive<u8>, StringContext> {
+) -> Result<RangeInclusive<u8>, Error> {
     if lo > hi {
-        return Err(StringContext(format!(
+        return Err(Error(format!(
             "range must be in ascending order; found {lo}-{hi}"
         )));
     }
 
     if lo > u8::MAX as u64 {
-        return Err(StringContext(format!(
+        return Err(Error(format!(
             "range must be in range {range:?}; found {lo}-{hi}"
         )));
     }
 
     if hi > u8::MAX as u64 {
-        return Err(StringContext(format!(
+        return Err(Error(format!(
             "range must be in range {range:?}; found {lo}-{hi}"
         )));
     }
@@ -338,7 +331,7 @@ fn expand_number_range_in_range(
     if range.contains(&lo) && range.contains(&hi) {
         Ok(lo..=hi)
     } else {
-        Err(StringContext(format!(
+        Err(Error(format!(
             "range must be in range {range:?}; found {lo}-{hi}"
         )))
     }
@@ -387,12 +380,12 @@ fn parse_steps_with_range<'a>(
     (possible_values, "/", dec_uint, eof).try_map_cut(
         move |(candidates, _, step, _): (RangeInclusive<u8>, _, u64, _)| {
             if step == 0 {
-                return Err(StringContext("step must be greater than 0".to_string()));
+                return Err(Error("step must be greater than 0".to_string()));
             }
 
             let step = step as u8;
             if !range.contains(&step) {
-                return Err(StringContext(format!(
+                return Err(Error(format!(
                     "step must be in range {range:?}; found {step}"
                 )));
             }
