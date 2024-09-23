@@ -38,15 +38,15 @@
 //! assert_eq!(driver.next_timestamp_millis().unwrap(), 1704225720000);
 //! ```
 
-use std::collections::BTreeSet;
-use std::str::FromStr;
-
+use jiff::civil::Weekday;
 use jiff::tz::TimeZone;
 use jiff::Span;
 use jiff::Timestamp;
 use jiff::ToSpan;
 use jiff::Unit;
 use jiff::Zoned;
+use std::collections::BTreeSet;
+use std::str::FromStr;
 
 mod parser;
 pub use parser::normalize_crontab;
@@ -69,29 +69,17 @@ pub struct Crontab {
     hours: PossibleLiterals,
     months: PossibleLiterals,
     days_of_month: PossibleLiterals,
-    days_of_week: PossibleLiterals,
+    days_of_week: PossibleDaysOfWeek,
     timezone: TimeZone,
 }
 
 #[derive(Debug)]
 enum PossibleValue {
     Literal(u8),
-    // TODO(tisonkun): work out whether these extensions are valuable
-    //  https://en.wikipedia.org/wiki/Cron#Non-standard_characters
-    //
-    // NearestWeekday(u8),
-    // LastDayOfWeek(Weekday),
-    // NthDayOfWeek(u8, Weekday),
-}
-
-fn sort_out_possible_values(values: Vec<PossibleValue>) -> PossibleLiterals {
-    let literals = values
-        .into_iter()
-        .map(|value| match value {
-            PossibleValue::Literal(value) => value,
-        })
-        .collect();
-    PossibleLiterals { values: literals }
+    NearestWeekday(u8),
+    LastDayOfMonth,
+    LastDayOfWeek(Weekday),
+    NthDayOfWeek(u8, Weekday),
 }
 
 #[derive(Debug)]
@@ -103,6 +91,13 @@ impl PossibleLiterals {
     fn matches(&self, value: u8) -> bool {
         self.values.contains(&value)
     }
+}
+
+#[derive(Debug)]
+struct PossibleDaysOfWeek {
+    literals: BTreeSet<u8>,
+    last_days_of_week: BTreeSet<Weekday>,
+    nth_days_of_week: BTreeSet<(u8, Weekday)>,
 }
 
 impl FromStr for Crontab {

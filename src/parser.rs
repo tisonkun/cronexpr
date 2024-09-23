@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use jiff::civil::Weekday;
+use std::collections::BTreeSet;
 use std::ops::RangeInclusive;
-
 use winnow::ascii::dec_uint;
-use winnow::combinator::alt;
 use winnow::combinator::eof;
 use winnow::combinator::separated;
+use winnow::combinator::{alt, opt};
 use winnow::error::ContextError;
 use winnow::error::ErrMode;
 use winnow::error::ErrorKind;
@@ -27,11 +28,10 @@ use winnow::token::take_while;
 use winnow::PResult;
 use winnow::Parser;
 
-use crate::sort_out_possible_values;
-use crate::Crontab;
 use crate::Error;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
+use crate::{Crontab, PossibleDaysOfWeek};
 
 /// Normalize a crontab expression to compact form.
 ///
@@ -166,15 +166,20 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
     do_parse_number_only(|| 1..=12, input)
 }
 
-fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
+fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
     let range = || 0..=7;
 
-    fn sunday(n: u8) -> u8 {
+    fn norm_sunday(n: u8) -> u8 {
         if n != 0 {
             n
         } else {
             7
         }
+    }
+
+    fn make_weekday(n: u8) -> Weekday {
+        let weekday = norm_sunday(n) as i8;
+        Weekday::from_monday_one_offset(weekday).expect("{weekday} must be in range 1..=7")
     }
 
     fn parse_single_day_of_week<'a>(
@@ -192,29 +197,63 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
         ))
     }
 
+    fn parse_single_day_of_week_ext<'a>(
+        range: fn() -> RangeInclusive<u8>,
+    ) -> impl Parser<&'a str, PossibleValue, ContextError> {
+        alt((
+            (parse_single_day_of_week(range), "L")
+                .map(|(n, _)| PossibleValue::LastDayOfWeek(make_weekday(n))),
+            (parse_single_day_of_week(range), "#", dec_uint)
+                .map(|(n, _, nth): (u8, _, u8)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
+            parse_single_day_of_week(range).map(|n| vec![PossibleValue::Literal(norm_sunday(n))]),
+        ))
+    }
+
     let values = parse_list(alt((
         parse_step(range, parse_single_day_of_week).map(|r| {
             r.into_iter()
-                .map(sunday)
+                .map(norm_sunday)
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
         parse_range(range, parse_single_day_of_week).map(|r| {
             r.into_iter()
-                .map(sunday)
+                .map(norm_sunday)
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_single_day_of_week(range).map(|n| vec![PossibleValue::Literal(sunday(n))]),
+        parse_single_day_of_week(range).map(|n| vec![PossibleValue::Literal(norm_sunday(n))]),
         parse_asterisk(range).map(|r| {
             r.into_iter()
-                .map(sunday)
+                .map(norm_sunday)
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
     )))
     .parse_next(input)?;
-    Ok(sort_out_possible_values(values))
+
+    let mut literals = BTreeSet::new();
+    let mut last_days_of_week = BTreeSet::new();
+    let mut nth_days_of_week = BTreeSet::new();
+    for value in values {
+        match value {
+            PossibleValue::Literal(value) => {
+                literals.insert(value);
+            }
+            PossibleValue::LastDayOfWeek(weekday) => {
+                last_days_of_week.insert(weekday);
+            }
+            PossibleValue::NthDayOfWeek(nth, weekday) => {
+                nth_days_of_week.insert((nth, weekday));
+            }
+            _ => unreachable!("unexpected value: {value:?}"),
+        }
+    }
+    Ok(PossibleDaysOfWeek {
+        literals,
+        last_days_of_week,
+        nth_days_of_week,
+    })
 }
 
 fn parse_days_of_month(input: &mut &str) -> PResult<PossibleLiterals> {
@@ -259,7 +298,17 @@ fn do_parse_number_only(
         }),
     )))
     .parse_next(input)?;
-    Ok(sort_out_possible_values(values))
+
+    let mut literals = BTreeSet::new();
+    for value in values {
+        match value {
+            PossibleValue::Literal(value) => {
+                literals.insert(value);
+            }
+            _ => unreachable!("unexpected value: {value:?}"),
+        }
+    }
+    Ok(PossibleLiterals { values: literals })
 }
 
 fn parse_asterisk<'a>(
