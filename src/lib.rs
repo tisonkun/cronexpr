@@ -39,14 +39,18 @@
 //! ```
 
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::str::FromStr;
 
+use jiff::civil::Weekday;
 use jiff::tz::TimeZone;
+use jiff::RoundMode;
 use jiff::Span;
 use jiff::Timestamp;
 use jiff::ToSpan;
 use jiff::Unit;
 use jiff::Zoned;
+use jiff::ZonedRound;
 
 mod parser;
 pub use parser::normalize_crontab;
@@ -69,29 +73,15 @@ pub struct Crontab {
     hours: PossibleLiterals,
     months: PossibleLiterals,
     days_of_month: PossibleLiterals,
-    days_of_week: PossibleLiterals,
+    days_of_week: PossibleDaysOfWeek,
     timezone: TimeZone,
 }
 
 #[derive(Debug)]
 enum PossibleValue {
     Literal(u8),
-    // TODO(tisonkun): work out whether these extensions are valuable
-    //  https://en.wikipedia.org/wiki/Cron#Non-standard_characters
-    //
-    // NearestWeekday(u8),
-    // LastDayOfWeek(Weekday),
-    // NthDayOfWeek(u8, Weekday),
-}
-
-fn sort_out_possible_values(values: Vec<PossibleValue>) -> PossibleLiterals {
-    let literals = values
-        .into_iter()
-        .map(|value| match value {
-            PossibleValue::Literal(value) => value,
-        })
-        .collect();
-    PossibleLiterals { values: literals }
+    LastDayOfWeek(Weekday),
+    NthDayOfWeek(u8, Weekday),
 }
 
 #[derive(Debug)]
@@ -102,6 +92,51 @@ struct PossibleLiterals {
 impl PossibleLiterals {
     fn matches(&self, value: u8) -> bool {
         self.values.contains(&value)
+    }
+}
+
+#[derive(Debug)]
+struct PossibleDaysOfWeek {
+    literals: BTreeSet<u8>,
+    last_days_of_week: HashSet<Weekday>,
+    nth_days_of_week: HashSet<(u8, Weekday)>,
+}
+
+impl PossibleDaysOfWeek {
+    fn matches(&self, value: &Zoned) -> bool {
+        if self.literals.contains(&(value.weekday() as u8)) {
+            return true;
+        }
+
+        for weekday in self.last_days_of_week.iter() {
+            if value.weekday() != *weekday {
+                continue;
+            }
+
+            if (value + 1.week()).month() > value.month() {
+                return true;
+            }
+        }
+
+        for (nth, weekday) in self.nth_days_of_week.iter() {
+            if value.weekday() != *weekday {
+                continue;
+            }
+
+            match value.nth_weekday_of_month(*nth as i8, *weekday) {
+                Ok(expected) => {
+                    if expected.date() == value.date() {
+                        return true;
+                    }
+                }
+                Err(err) => {
+                    log::debug!(err:?; "failed to match nth weekday of month: {nth} {weekday:?}");
+                    continue;
+                }
+            };
+        }
+
+        false
     }
 }
 
@@ -225,7 +260,7 @@ impl Driver {
                 continue;
             }
 
-            if !crontab.days_of_week.matches(next.weekday() as u8) {
+            if !crontab.days_of_week.matches(&next) {
                 next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
                 continue;
             }
@@ -245,9 +280,11 @@ fn advance_time_and_round(zoned: Zoned, span: Span, unit: Option<Unit>) -> Resul
         )))?;
 
     if let Some(unit) = unit {
-        next = next.round(unit).map_err(time_error_with_context(&format!(
-            "failed to round timestamp; end with {next}"
-        )))?;
+        next = next
+            .round(ZonedRound::new().mode(RoundMode::Trunc).smallest(unit))
+            .map_err(time_error_with_context(&format!(
+                "failed to round timestamp; end with {next}"
+            )))?;
     }
 
     Ok(next)
@@ -331,5 +368,32 @@ mod tests {
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-17T18:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-18T18:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-19T18:00:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver("0 18 * * TUE#1 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-01T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-05T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-03T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-07T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-04T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-04T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-04-01T18:00:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver("4 2 * * 1L Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-30T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-28T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-25T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-27T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-24T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-31T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-04-28T02:04:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver("0 18 * * FRI#5 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-30T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-08-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-10-31T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-30T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-29T18:00:00+08:00[Asia/Shanghai]");
     }
 }
