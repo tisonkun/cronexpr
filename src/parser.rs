@@ -177,20 +177,35 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
         }
     }
 
+    fn parse_single_day_of_week<'a>(
+        range: fn() -> RangeInclusive<u8>,
+    ) -> impl Parser<&'a str, u8, ContextError> {
+        alt((
+            "SUN".map(|_| 0),
+            "MON".map(|_| 1),
+            "TUE".map(|_| 2),
+            "WED".map(|_| 3),
+            "THU".map(|_| 4),
+            "FRI".map(|_| 5),
+            "SAT".map(|_| 6),
+            parse_single_number(range),
+        ))
+    }
+
     let values = parse_list(alt((
-        parse_step(range, parse_single_number).map(|r| {
+        parse_step(range, parse_single_day_of_week).map(|r| {
             r.into_iter()
                 .map(sunday)
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_range(range, parse_single_number).map(|r| {
+        parse_range(range, parse_single_day_of_week).map(|r| {
             r.into_iter()
                 .map(sunday)
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_single_number(range).map(|n| vec![PossibleValue::Literal(sunday(n))]),
+        parse_single_day_of_week(range).map(|n| vec![PossibleValue::Literal(sunday(n))]),
         parse_asterisk(range).map(|r| {
             r.into_iter()
                 .map(sunday)
@@ -274,19 +289,6 @@ fn parse_single_number<'a>(
             )))
         }
     })
-}
-
-fn parse_single_day_of_week(input: &mut &str) -> PResult<u8> {
-    alt((
-        "SUN".map(|_| 0),
-        "MON".map(|_| 1),
-        "TUE".map(|_| 2),
-        "WED".map(|_| 3),
-        "THU".map(|_| 4),
-        "FRI".map(|_| 5),
-        "SAT".map(|_| 6),
-    ))
-    .parse_next(input)
 }
 
 fn parse_range<'a, P>(
@@ -451,10 +453,9 @@ mod tests {
     use crate::setup_logging;
 
     #[test]
-    fn test_parse_crontab() {
+    fn test_parse_crontab_success() {
         setup_logging();
 
-        // old cases - since insta name anon cases by order, let's leave it as is
         assert_debug_snapshot!(parse_crontab("* * * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap());
@@ -465,6 +466,13 @@ mod tests {
         assert_debug_snapshot!(parse_crontab("1-30/2 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1,2,10 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 1 1 * Asia/Shanghai").unwrap());
+        assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TUE Asia/Shanghai").unwrap());
+    }
+
+    #[test]
+    fn test_parse_crontab_failed() {
+        setup_logging();
+
         assert_snapshot!(parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("* * * * * Unknown/Timezone").unwrap_err());
         assert_snapshot!(parse_crontab("* 5-4 * * * Asia/Shanghai").unwrap_err());
@@ -479,6 +487,7 @@ mod tests {
         assert_snapshot!(parse_crontab("1,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("104,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1,2,10 * * 104,2,10,100 * Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TTT Asia/Shanghai").unwrap_err());
     }
 
     #[test]
