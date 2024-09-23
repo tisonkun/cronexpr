@@ -72,15 +72,45 @@ pub struct Crontab {
     minutes: PossibleLiterals,
     hours: PossibleLiterals,
     months: PossibleLiterals,
-    days_of_month: PossibleLiterals,
+    days_of_month: PossibleDaysOfMonth,
     days_of_week: PossibleDaysOfWeek,
     timezone: TimeZone,
 }
 
 #[derive(Debug)]
 enum PossibleValue {
+    /// Literally match the value.
+    ///
+    /// For example, a possible literal of minute '15' matches when the minute is '15'.
     Literal(u8),
+    /// Parsed from '<day>W' in day-of-month field.
+    ///
+    /// The 'W' character is allowed for the day-of-month field. This character is used to specify
+    /// the weekday (Monday-Friday) nearest the given day. As an example, if "15W" is specified as
+    /// the value for the day-of-month field, the meaning is: "the nearest weekday to the 15th of
+    /// the month." So, if the 15th is a Saturday, the trigger fires on Friday the 14th. If the
+    /// 15th is a Sunday, the trigger fires on Monday the 16th. If the 15th is a Tuesday, then it
+    /// fires on Tuesday the 15th. However, if "1W" is specified as the value for day-of-month, and
+    /// the 1st is a Saturday, the trigger fires on Monday the 3rd, as it does not 'jump' over the
+    /// boundary of a month's days. The 'W' character can be specified only when the day-of-month
+    /// is a single day, not a range or list of days.
+    NearestWeekday(u8),
+    /// Parsed from '<day>L' in day-of-month field.
+    ///
+    /// 'L' stands for "last". When used in the day-of-month field, it specifies the last day of
+    /// the month.
+    LastDayOfMonth,
+    /// Parsed from '<weekday>L' in day-of-week field.
+    ///
+    /// 'L' stands for "last". When used in the day-of-week field, it allows specifying constructs
+    /// such as "the last Friday" ("5L") of a given month.
     LastDayOfWeek(Weekday),
+    /// Parsed from '<weekday>#<nth>' in day-of-week field.
+    ///
+    /// '#' is allowed for the day-of-week field, and must be followed by a number between one and
+    /// five. It allows specifying constructs such as "the second Friday" of a given month. For
+    /// example, entering "5#3" in the day-of-week field corresponds to the third Friday of every
+    /// month.
     NthDayOfWeek(u8, Weekday),
 }
 
@@ -138,6 +168,13 @@ impl PossibleDaysOfWeek {
 
         false
     }
+}
+
+#[derive(Debug)]
+struct PossibleDaysOfMonth {
+    literals: BTreeSet<u8>,
+    last_day_of_month: bool,
+    nearest_weekdays: BTreeSet<u8>,
 }
 
 impl FromStr for Crontab {
