@@ -28,8 +28,8 @@ Crontab {
             1,
         },
     },
-    days_of_month: PossibleLiterals {
-        values: {
+    days_of_month: PossibleDaysOfMonth {
+        literals: {
             1,
             2,
             3,
@@ -62,6 +62,8 @@ Crontab {
             30,
             31,
         },
+        last_day_of_month: false,
+        nearest_weekdays: {},
     },
     days_of_week: PossibleDaysOfWeek {
         literals: {

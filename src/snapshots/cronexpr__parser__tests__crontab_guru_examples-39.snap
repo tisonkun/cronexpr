@@ -19,10 +19,12 @@ Crontab {
             7,
         },
     },
-    days_of_month: PossibleLiterals {
-        values: {
+    days_of_month: PossibleDaysOfMonth {
+        literals: {
             1,
         },
+        last_day_of_month: false,
+        nearest_weekdays: {},
     },
     days_of_week: PossibleDaysOfWeek {
         literals: {

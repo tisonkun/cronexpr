@@ -30,11 +30,12 @@ use winnow::token::take_while;
 use winnow::PResult;
 use winnow::Parser;
 
+use crate::Crontab;
 use crate::Error;
+use crate::PossibleDaysOfMonth;
 use crate::PossibleDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
-use crate::{Crontab, PossibleDaysOfMonth};
 
 /// Normalize a crontab expression to compact form.
 ///
@@ -166,7 +167,58 @@ fn parse_hours(input: &mut &str) -> PResult<PossibleLiterals> {
 }
 
 fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
-    do_parse_number_only(|| 1..=12, input)
+    let range = || 1..=12;
+
+    fn parse_single_month<'a>(
+        range: fn() -> RangeInclusive<u8>,
+    ) -> impl Parser<&'a str, u8, ContextError> {
+        alt((
+            "JAN".map(|_| 1),
+            "FEB".map(|_| 2),
+            "MAR".map(|_| 3),
+            "APR".map(|_| 4),
+            "MAY".map(|_| 5),
+            "JUN".map(|_| 6),
+            "JUL".map(|_| 7),
+            "AUG".map(|_| 8),
+            "SEP".map(|_| 9),
+            "OCT".map(|_| 10),
+            "NOV".map(|_| 11),
+            "DEC".map(|_| 12),
+            parse_single_number(range),
+        ))
+    }
+
+    let values = parse_list(alt((
+        parse_step(range, parse_single_month).map(|r| {
+            r.into_iter()
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+        parse_range(range, parse_single_month).map(|r| {
+            r.into_iter()
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+        parse_single_month(range).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_asterisk(range).map(|r| {
+            r.into_iter()
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+    )))
+    .parse_next(input)?;
+
+    let mut literals = BTreeSet::new();
+    for value in values {
+        match value {
+            PossibleValue::Literal(value) => {
+                literals.insert(value);
+            }
+            _ => unreachable!("unexpected value: {value:?}"),
+        }
+    }
+    Ok(PossibleLiterals { values: literals })
 }
 
 fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
@@ -267,7 +319,7 @@ fn parse_days_of_month(input: &mut &str) -> PResult<PossibleDaysOfMonth> {
     ) -> impl Parser<&'a str, PossibleValue, ContextError> {
         alt((
             (parse_single_number(range), "W").map(|(n, _)| PossibleValue::NearestWeekday(n)),
-            parse_single_number(range).map(|n| PossibleValue::Literal(n)),
+            parse_single_number(range).map(PossibleValue::Literal),
             "L".map(|_| PossibleValue::LastDayOfMonth),
         ))
     }
