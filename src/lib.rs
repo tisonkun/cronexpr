@@ -86,6 +86,7 @@ enum PossibleValue {
     NthDayOfWeek(u8, Weekday),
 }
 
+/// @see [PossibleValue::Literal]
 #[derive(Debug, Clone)]
 struct PossibleLiterals {
     values: BTreeSet<u8>,
@@ -99,8 +100,11 @@ impl PossibleLiterals {
 
 #[derive(Debug, Clone)]
 struct ParsedDaysOfWeek {
+    /// @see [PossibleValue::Literal]
     literals: BTreeSet<u8>,
+    /// @see [PossibleValue::LastDayOfWeek]
     last_days_of_week: HashSet<Weekday>,
+    /// @see [PossibleValue::NthDayOfWeek]
     nth_days_of_week: HashSet<(u8, Weekday)>,
 
     // to implement vixie's cron behavior
@@ -142,8 +146,11 @@ impl ParsedDaysOfWeek {
 
 #[derive(Debug, Clone)]
 struct ParsedDaysOfMonth {
+    /// @see [PossibleValue::Literal]
     literals: BTreeSet<u8>,
+    /// @see [PossibleValue::LastDayOfMonth]
     last_day_of_month: bool,
+    /// @see [PossibleValue::NearestWeekday]
     nearest_weekdays: BTreeSet<u8>,
 
     // to implement vixie's cron behavior
@@ -234,18 +241,51 @@ impl<'a> TryFrom<&'a str> for Crontab {
 }
 
 impl Crontab {
-    pub fn drive(&self, timestamp: Timestamp) -> Driver {
+    /// The same as [Crontab::drive] but throws an error when converting to timestamp fails.
+    pub fn try_drive<T1, T2>(&self, start: T1, end: Option<T2>) -> Result<Driver, Error>
+    where
+        T1: TryInto<Timestamp>,
+        T1::Error: std::error::Error,
+        T2: TryInto<Timestamp>,
+        T2::Error: std::error::Error,
+    {
+        let start = start
+            .try_into()
+            .map_err(error_with_context("failed to parse start timestamp"))?;
+
+        let end = match end {
+            Some(end) => Some(
+                end.try_into()
+                    .map_err(error_with_context("failed to parse end timestamp"))?,
+            ),
+            None => None,
+        };
+
+        Ok(self.drive(start, end))
+    }
+
+    /// Create an iterator over next timestamps within `(start, end)`.
+    ///
+    /// If `end` is `None`, the iteration is infinite. Otherwise, the iteration stops when the
+    /// next timestamp is equal to or beyond the `end` timestamp.
+    pub fn drive(&self, start: Timestamp, end: Option<Timestamp>) -> Driver {
         Driver {
             crontab: self.clone(),
-            timestamp,
+            timestamp: start,
+            bound: end,
         }
     }
 
-    pub fn find_next(&self, timestamp: impl TryInto<Timestamp>) -> Result<Zoned, Error> {
-        let timestamp = timestamp
+    /// Find the next timestamp after the given timestamp.
+    pub fn find_next<T>(&self, timestamp: T) -> Result<Zoned, Error>
+    where
+        T: TryInto<Timestamp>,
+        T::Error: std::error::Error,
+    {
+        let zoned = timestamp
             .try_into()
-            .map_err(|_| Error("failed to parse timestamp".to_string()))?;
-        let zoned = timestamp.to_zoned(self.timezone.clone());
+            .map(|ts| ts.to_zoned(self.timezone.clone()))
+            .map_err(error_with_context("failed to parse timestamp"))?;
 
         // checked at most 4 years to cover the leap year case
         let bound = &zoned + 4.years();
@@ -296,73 +336,49 @@ impl Crontab {
     }
 }
 
-#[derive(Debug)]
-pub struct DriverOption {
-    start: Timestamp,
-    end: Option<Timestamp>,
-}
-
-impl Default for DriverOption {
-    fn default() -> Self {
-        DriverOption {
-            start: Timestamp::now(),
-            end: None,
-        }
-    }
-}
-
-/// Driver to find the next timestamp from the given crontab and timestamp,
-/// or iterate the next timestamps.
-///
-/// Call [Crontab::drive_with_timestamp] or [Crontab::drive_with_timestamp_millis]
-/// to obtain an instance of [`Driver`].
+/// Iterator over next timestamps. See [Crontab::drive] for more details.
 #[derive(Debug)]
 pub struct Driver {
+    /// The crontab to find the next timestamp.
     crontab: Crontab,
+    /// The current timestamp; mutable.
     timestamp: Timestamp,
+    /// When next timestamp is beyond this bound, stop iteration. [`None`] if never stop.
+    bound: Option<Timestamp>,
 }
 
-impl Driver {
-    /// Iterate to the next timestamp as a [`Zoned`] struct.
-    pub fn next_zoned(&mut self) -> Result<Zoned, Error> {
-        let timestamp = self.find_next_timestamp()?;
-        self.timestamp = timestamp;
-        Ok(timestamp.to_zoned(self.crontab.timezone.clone()))
-    }
+impl Iterator for Driver {
+    type Item = Result<Zoned, Error>;
 
-    /// Iterate to the next timestamp as a [`Timestamp`] struct.
-    pub fn next_timestamp(&mut self) -> Result<Timestamp, Error> {
-        let timestamp = self.find_next_timestamp()?;
-        self.timestamp = timestamp;
-        Ok(timestamp)
-    }
+    fn next(&mut self) -> Option<Self::Item> {
+        let zoned = match self.crontab.find_next(self.timestamp) {
+            Ok(zoned) => zoned,
+            Err(err) => return Some(Err(err)),
+        };
 
-    /// Find the next timestamp as a [`Zoned`] struct.
-    pub fn find_next_zoned(&self) -> Result<Zoned, Error> {
-        let timezone = self.crontab.timezone.clone();
-        self.find_next_timestamp().map(|ts| ts.to_zoned(timezone))
-    }
+        if let Some(bound) = self.bound {
+            if zoned.timestamp() >= bound {
+                return None;
+            }
+        }
 
-    /// Find the next timestamp as a [`Timestamp`] struct.
-    pub fn find_next_timestamp(&self) -> Result<Timestamp, Error> {
-        let zoned = self.crontab.find_next(self.timestamp)?;
-        Ok(zoned.timestamp())
+        self.timestamp = zoned.timestamp();
+
+        Some(Ok(zoned))
     }
 }
 
 fn advance_time_and_round(zoned: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
     let mut next = zoned;
 
-    next = next
-        .checked_add(span)
-        .map_err(time_error_with_context(&format!(
-            "failed to advance timestamp; end with {next}"
-        )))?;
+    next = next.checked_add(span).map_err(error_with_context(&format!(
+        "failed to advance timestamp; end with {next}"
+    )))?;
 
     if let Some(unit) = unit {
         next = next
             .round(ZonedRound::new().mode(RoundMode::Trunc).smallest(unit))
-            .map_err(time_error_with_context(&format!(
+            .map_err(error_with_context(&format!(
                 "failed to round timestamp; end with {next}"
             )))?;
     }
@@ -370,7 +386,7 @@ fn advance_time_and_round(zoned: Zoned, span: Span, unit: Option<Unit>) -> Resul
     Ok(next)
 }
 
-fn time_error_with_context(context: &str) -> impl FnOnce(jiff::Error) -> Error + '_ {
+fn error_with_context<E: std::error::Error>(context: &str) -> impl FnOnce(E) -> Error + '_ {
     move |error| Error(format!("{context}: {error}"))
 }
 
@@ -402,6 +418,7 @@ mod tests {
 
     use insta::assert_snapshot;
     use jiff::Timestamp;
+    use jiff::Zoned;
 
     use crate::setup_logging;
     use crate::Crontab;
@@ -410,107 +427,111 @@ mod tests {
     fn make_driver(crontab: &str, timestamp: &str) -> Driver {
         let timestamp = Timestamp::from_str(timestamp).unwrap();
         let crontab = Crontab::from_str(crontab).unwrap();
-        crontab.drive(timestamp)
+        crontab.drive(timestamp, None)
+    }
+
+    fn drive(driver: &mut Driver) -> Zoned {
+        driver.next().unwrap().unwrap()
     }
 
     #[test]
     fn test_next_timestamp() {
         setup_logging();
 
-        let driver = make_driver("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
-        assert_snapshot!(driver.find_next_zoned().unwrap(), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
+        let mut driver = make_driver("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
+        assert_snapshot!(drive(&mut driver), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("2 4 * * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-12T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-13T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-14T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-15T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-16T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-12T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-13T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-14T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-15T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-16T04:02:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("0 0 31 * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-07-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-08-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-10-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-12-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-03-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-12-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-03-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-05-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-07-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-08-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-10-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-12-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-01-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-03-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-05-31T00:00:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("0 18 * * 1-5 Asia/Shanghai", "2024-09-11T19:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-12T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-13T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-16T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-17T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-18T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-19T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-12T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-13T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-16T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-17T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-18T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-19T18:00:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("0 18 * * TUE#1 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-01T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-05T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-03T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-07T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-04T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-04T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-04-01T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-01T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-11-05T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-12-03T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-07T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-02-04T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-03-04T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-04-01T18:00:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("4 2 * * 1L Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-30T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-28T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-25T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-27T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-24T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-31T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-04-28T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-30T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-28T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-11-25T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-27T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-02-24T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-03-31T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-04-28T02:04:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("0 18 * * FRI#5 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-29T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-30T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-08-29T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-10-31T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-30T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-11-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-31T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-05-30T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-08-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-10-31T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-01-30T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-05-29T18:00:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver(
             "3 11 L JAN-FEB,5 * Asia/Shanghai",
             "2024-09-24T00:08:35+08:00",
         );
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-28T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-02-28T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-02-28T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-05-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-02-28T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2026-05-31T11:03:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("3 11 17W,L * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-30T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-17T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-18T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-30T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-17T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-09-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-17T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-11-18T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-11-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-12-17T11:03:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("3 11 1W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-01T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-01T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-02T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-01T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-03T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-03T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-11-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-12-02T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-02-03T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-03-03T11:03:00+08:00[Asia/Shanghai]");
 
         let mut driver = make_driver("3 11 31W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-30T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-07-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-08-29T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2024-12-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-03-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-05-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-07-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-08-29T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(drive(&mut driver), @"2025-10-31T11:03:00+08:00[Asia/Shanghai]");
     }
 }
