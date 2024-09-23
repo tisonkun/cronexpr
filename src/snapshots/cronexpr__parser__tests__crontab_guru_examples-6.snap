@@ -63,7 +63,7 @@ Crontab {
             12,
         },
     },
-    days_of_month: PossibleDaysOfMonth {
+    days_of_month: ParsedDaysOfMonth {
         literals: {
             1,
             2,
@@ -99,8 +99,9 @@ Crontab {
         },
         last_day_of_month: false,
         nearest_weekdays: {},
+        start_with_asterisk: true,
     },
-    days_of_week: PossibleDaysOfWeek {
+    days_of_week: ParsedDaysOfWeek {
         literals: {
             1,
             2,
@@ -112,6 +113,7 @@ Crontab {
         },
         last_days_of_week: {},
         nth_days_of_week: {},
+        start_with_asterisk: true,
     },
     timezone: TimeZone(
         "UTC",

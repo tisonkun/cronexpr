@@ -32,8 +32,8 @@ use winnow::Parser;
 
 use crate::Crontab;
 use crate::Error;
-use crate::PossibleDaysOfMonth;
-use crate::PossibleDaysOfWeek;
+use crate::ParsedDaysOfMonth;
+use crate::ParsedDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
 
@@ -221,7 +221,8 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
     Ok(PossibleLiterals { values: literals })
 }
 
-fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
+fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
+    let start_with_asterisk = input.starts_with('*');
     let range = || 0..=7;
 
     fn norm_sunday(n: u8) -> u8 {
@@ -258,8 +259,12 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
         alt((
             (parse_single_day_of_week(range), "L")
                 .map(|(n, _)| PossibleValue::LastDayOfWeek(make_weekday(n))),
-            (parse_single_day_of_week(range), "#", dec_uint)
-                .map(|(n, _, nth): (u8, _, u8)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
+            (
+                parse_single_day_of_week(range),
+                "#",
+                parse_single_number(|| 1..=5),
+            )
+                .map(|(n, _, nth)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
             parse_single_day_of_week(range).map(|n| PossibleValue::Literal(norm_sunday(n))),
         ))
     }
@@ -304,14 +309,16 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
             _ => unreachable!("unexpected value: {value:?}"),
         }
     }
-    Ok(PossibleDaysOfWeek {
+    Ok(ParsedDaysOfWeek {
         literals,
         last_days_of_week,
         nth_days_of_week,
+        start_with_asterisk,
     })
 }
 
-fn parse_days_of_month(input: &mut &str) -> PResult<PossibleDaysOfMonth> {
+fn parse_days_of_month(input: &mut &str) -> PResult<ParsedDaysOfMonth> {
+    let start_with_asterisk = input.starts_with('*');
     let range = || 1..=31;
 
     fn parse_single_day_of_month_ext<'a>(
@@ -361,10 +368,11 @@ fn parse_days_of_month(input: &mut &str) -> PResult<PossibleDaysOfMonth> {
             _ => unreachable!("unexpected value: {value:?}"),
         }
     }
-    Ok(PossibleDaysOfMonth {
+    Ok(ParsedDaysOfMonth {
         literals,
         last_day_of_month,
         nearest_weekdays,
+        start_with_asterisk,
     })
 }
 
