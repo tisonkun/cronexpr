@@ -98,8 +98,8 @@ Crontab {
             31,
         },
     },
-    days_of_week: PossibleLiterals {
-        values: {
+    days_of_week: PossibleDaysOfWeek {
+        literals: {
             1,
             2,
             3,
@@ -108,6 +108,8 @@ Crontab {
             6,
             7,
         },
+        last_days_of_week: {},
+        nth_days_of_week: {},
     },
     timezone: TimeZone(
         "UTC",

@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use jiff::civil::Weekday;
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
+
+use jiff::civil::Weekday;
 use winnow::ascii::dec_uint;
+use winnow::combinator::alt;
 use winnow::combinator::eof;
 use winnow::combinator::separated;
-use winnow::combinator::{alt, opt};
 use winnow::error::ContextError;
 use winnow::error::ErrMode;
 use winnow::error::ErrorKind;
@@ -28,10 +30,11 @@ use winnow::token::take_while;
 use winnow::PResult;
 use winnow::Parser;
 
+use crate::Crontab;
 use crate::Error;
+use crate::PossibleDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
-use crate::{Crontab, PossibleDaysOfWeek};
 
 /// Normalize a crontab expression to compact form.
 ///
@@ -205,7 +208,7 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
                 .map(|(n, _)| PossibleValue::LastDayOfWeek(make_weekday(n))),
             (parse_single_day_of_week(range), "#", dec_uint)
                 .map(|(n, _, nth): (u8, _, u8)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
-            parse_single_day_of_week(range).map(|n| vec![PossibleValue::Literal(norm_sunday(n))]),
+            parse_single_day_of_week(range).map(|n| PossibleValue::Literal(norm_sunday(n))),
         ))
     }
 
@@ -222,7 +225,7 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_single_day_of_week(range).map(|n| vec![PossibleValue::Literal(norm_sunday(n))]),
+        parse_single_day_of_week_ext(range).map(|n| vec![n]),
         parse_asterisk(range).map(|r| {
             r.into_iter()
                 .map(norm_sunday)
@@ -233,8 +236,8 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
     .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
-    let mut last_days_of_week = BTreeSet::new();
-    let mut nth_days_of_week = BTreeSet::new();
+    let mut last_days_of_week = HashSet::new();
+    let mut nth_days_of_week = HashSet::new();
     for value in values {
         match value {
             PossibleValue::Literal(value) => {
@@ -246,7 +249,6 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
             PossibleValue::NthDayOfWeek(nth, weekday) => {
                 nth_days_of_week.insert((nth, weekday));
             }
-            _ => unreachable!("unexpected value: {value:?}"),
         }
     }
     Ok(PossibleDaysOfWeek {

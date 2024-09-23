@@ -36,4 +36,4 @@ winnow = { version = "0.6.18" }
 
 [dev-dependencies]
 insta = { version = "1.40.0" }
-logforth = { version = "0.11.2", features = ["env-filter"] }
+logforth = { version = "0.12.0", features = ["env-filter"] }
