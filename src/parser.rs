@@ -167,7 +167,39 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
 }
 
 fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
-    do_parse_number_only(|| 0..=6, input)
+    let range = || 0..=7;
+
+    fn sunday(n: u8) -> u8 {
+        if n != 0 {
+            n
+        } else {
+            7
+        }
+    }
+
+    let values = parse_list(alt((
+        parse_step(range, parse_single_number).map(|r| {
+            r.into_iter()
+                .map(sunday)
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+        parse_range(range, parse_single_number).map(|r| {
+            r.into_iter()
+                .map(sunday)
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+        parse_single_number(range).map(|n| vec![PossibleValue::Literal(sunday(n))]),
+        parse_asterisk(range).map(|r| {
+            r.into_iter()
+                .map(sunday)
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+    )))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
 fn parse_days_of_month(input: &mut &str) -> PResult<PossibleLiterals> {
@@ -194,12 +226,12 @@ fn do_parse_number_only(
     input: &mut &str,
 ) -> PResult<PossibleLiterals> {
     let values = parse_list(alt((
-        parse_step(range, parse_single_number(range)).map(|r| {
+        parse_step(range, parse_single_number).map(|r| {
             r.into_iter()
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_range(range, parse_single_number(range)).map(|r| {
+        parse_range(range, parse_single_number).map(|r| {
             r.into_iter()
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
@@ -217,8 +249,8 @@ fn do_parse_number_only(
 
 fn parse_asterisk<'a>(
     range: fn() -> RangeInclusive<u8>,
-) -> impl Parser<&'a str, RangeInclusive<u8>, ContextError> {
-    "*".map(move |_| range())
+) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+    "*".map(move |_| range().collect())
 }
 
 fn parse_single_number<'a>(
@@ -259,13 +291,17 @@ fn parse_single_day_of_week(input: &mut &str) -> PResult<u8> {
 
 fn parse_range<'a, P>(
     range: fn() -> RangeInclusive<u8>,
-    parse_single_range_bound: P,
-) -> impl Parser<&'a str, RangeInclusive<u8>, ContextError>
+    parse_single_range_bound: fn(fn() -> RangeInclusive<u8>) -> P,
+) -> impl Parser<&'a str, Vec<u8>, ContextError>
 where
-    P: Parser<&'a str, u8, ContextError> + Copy,
+    P: Parser<&'a str, u8, ContextError>,
 {
-    (parse_single_range_bound, "-", parse_single_range_bound).try_map_cut(
-        move |(lo, _, hi): (u64, _, u64)| {
+    (
+        parse_single_range_bound(range),
+        "-",
+        parse_single_range_bound(range),
+    )
+        .try_map_cut(move |(lo, _, hi): (u8, _, u8)| {
             let range = range();
 
             if lo > hi {
@@ -274,77 +310,62 @@ where
                 )));
             }
 
-            if lo > u8::MAX as u64 {
-                return Err(Error(format!(
-                    "range must be in range {range:?}; found {lo}-{hi}"
-                )));
-            }
-
-            if hi > u8::MAX as u64 {
-                return Err(Error(format!(
-                    "range must be in range {range:?}; found {lo}-{hi}"
-                )));
-            }
-
-            let lo = lo as u8;
-            let hi = hi as u8;
             if range.contains(&lo) && range.contains(&hi) {
-                Ok(lo..=hi)
+                Ok((lo..=hi).collect())
             } else {
                 Err(Error(format!(
                     "range must be in range {range:?}; found {lo}-{hi}"
                 )))
             }
-        },
-    )
+        })
 }
 
 fn parse_step<'a, P>(
     range: fn() -> RangeInclusive<u8>,
-    parse_single_range_bound: P,
-) -> impl Parser<&'a str, RangeInclusive<u8>, ContextError>
+    parse_single_range_bound: fn(fn() -> RangeInclusive<u8>) -> P,
+) -> impl Parser<&'a str, Vec<u8>, ContextError>
 where
-    P: Parser<&'a str, u8, ContextError> + Copy,
+    P: Parser<&'a str, u8, ContextError>,
 {
+    let range_end = *range().end();
+
     let possible_values = alt((
         parse_asterisk(range),
         parse_range(range, parse_single_range_bound),
-        parse_single_range_bound.map(|n| n..=*range().end()),
+        parse_single_range_bound(range).map(move |n| (n..=range_end).collect()),
     ));
 
-    (possible_values, "/", dec_uint).try_map_cut(
-        move |(candidates, _, step): (RangeInclusive<u8>, _, u64)| {
-            let range = range();
+    (possible_values, "/", dec_uint).try_map_cut(move |(candidates, _, step): (Vec<u8>, _, u64)| {
+        let range = range();
 
-            if step == 0 {
-                return Err(Error("step must be greater than 0".to_string()));
-            }
+        if step == 0 {
+            return Err(Error("step must be greater than 0".to_string()));
+        }
 
-            if step > u8::MAX as u64 {
-                return Err(Error(format!(
-                    "step must be in range {range:?}; found {step}"
-                )));
-            }
+        if step > u8::MAX as u64 {
+            return Err(Error(format!(
+                "step must be in range {range:?}; found {step}"
+            )));
+        }
 
-            let step = step as u8;
-            if !range.contains(&step) {
-                return Err(Error(format!(
-                    "step must be in range {range:?}; found {step}"
-                )));
-            }
+        let step = step as u8;
+        if !range.contains(&step) {
+            return Err(Error(format!(
+                "step must be in range {range:?}; found {step}"
+            )));
+        }
 
-            let mut values = Vec::new();
-            for n in candidates.step_by(step as usize) {
-                values.push(n);
-            }
-            Ok(values)
-        },
-    )
+        let mut values = Vec::new();
+        for n in candidates.into_iter().step_by(step as usize) {
+            values.push(n);
+        }
+        Ok(values)
+    })
 }
 
 fn parse_list<'a, P>(parse_list_item: P) -> impl Parser<&'a str, Vec<PossibleValue>, ContextError>
 where
-    P: Parser<&'a str, Vec<PossibleValue>, ContextError> + Copy,
+    P: Parser<&'a str, Vec<PossibleValue>, ContextError>,
 {
     (separated(1.., parse_list_item, ","), eof)
         .map(move |(ns, _): (Vec<Vec<PossibleValue>>, _)| ns.into_iter().flatten().collect())
