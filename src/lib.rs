@@ -153,17 +153,11 @@ impl PossibleDaysOfWeek {
                 continue;
             }
 
-            match value.nth_weekday_of_month(*nth as i8, *weekday) {
-                Ok(expected) => {
-                    if expected.date() == value.date() {
-                        return true;
-                    }
+            if let Ok(nth_weekday) = value.nth_weekday_of_month(*nth as i8, *weekday) {
+                if nth_weekday.date() == value.date() {
+                    return true;
                 }
-                Err(err) => {
-                    log::debug!(err:?; "failed to match nth weekday of month: {nth} {weekday:?}");
-                    continue;
-                }
-            };
+            }
         }
 
         false
