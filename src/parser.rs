@@ -23,7 +23,6 @@ use winnow::error::ErrMode;
 use winnow::error::ErrorKind;
 use winnow::error::FromExternalError;
 use winnow::stream::Stream;
-use winnow::token::literal;
 use winnow::token::take_while;
 use winnow::PResult;
 use winnow::Parser;
@@ -155,6 +154,26 @@ fn format_parse_error(
     Error(format!("{context}:\n{input}\n{indent}^ {error}"))
 }
 
+fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
+    do_parse_number_only(|| 0..=59, input)
+}
+
+fn parse_hours(input: &mut &str) -> PResult<PossibleLiterals> {
+    do_parse_number_only(|| 0..=23, input)
+}
+
+fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
+    do_parse_number_only(|| 1..=12, input)
+}
+
+fn parse_days_of_week(input: &mut &str) -> PResult<PossibleLiterals> {
+    do_parse_number_only(|| 0..=6, input)
+}
+
+fn parse_days_of_month(input: &mut &str) -> PResult<PossibleLiterals> {
+    do_parse_number_only(|| 1..=31, input)
+}
+
 fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
     take_while(0.., |_| true)
         .try_map_cut(|timezone| {
@@ -167,6 +186,33 @@ fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
             })
         })
         .parse_next(input)
+}
+
+// number only = minutes, hours, or months
+fn do_parse_number_only(
+    range: fn() -> RangeInclusive<u8>,
+    input: &mut &str,
+) -> PResult<PossibleLiterals> {
+    let values = parse_list(alt((
+        parse_step(range, parse_single_number(range)).map(|r| {
+            r.into_iter()
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+        parse_range(range, parse_single_number(range)).map(|r| {
+            r.into_iter()
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+        parse_single_number(range).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_asterisk(range).map(|r| {
+            r.into_iter()
+                .map(PossibleValue::Literal)
+                .collect::<Vec<_>>()
+        }),
+    )))
+    .parse_next(input)?;
+    Ok(sort_out_possible_values(values))
 }
 
 fn parse_asterisk<'a>(
@@ -294,6 +340,14 @@ where
             Ok(values)
         },
     )
+}
+
+fn parse_list<'a, P>(parse_list_item: P) -> impl Parser<&'a str, Vec<PossibleValue>, ContextError>
+where
+    P: Parser<&'a str, Vec<PossibleValue>, ContextError> + Copy,
+{
+    (separated(1.., parse_list_item, ","), eof)
+        .map(move |(ns, _): (Vec<Vec<PossibleValue>>, _)| ns.into_iter().flatten().collect())
 }
 
 trait ParserExt<I, O, E>: Parser<I, O, E> {
