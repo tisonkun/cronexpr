@@ -178,7 +178,24 @@ fn parse_asterisk<'a>(
 fn parse_single_number<'a>(
     range: fn() -> RangeInclusive<u8>,
 ) -> impl Parser<&'a str, u8, ContextError> {
-    dec_uint.try_map_cut(move |n: u64| ensure_number_in_range(n, range()))
+    dec_uint.try_map_cut(move |n: u64| {
+        let range = range();
+
+        if n > u8::MAX as u64 {
+            return Err(Error(format!(
+                "value must be in range {range:?}; found {n}"
+            )));
+        }
+
+        let n = n as u8;
+        if range.contains(&n) {
+            Ok(n)
+        } else {
+            Err(Error(format!(
+                "value must be in range {range:?}; found {n}"
+            )))
+        }
+    })
 }
 
 fn parse_single_day_of_week(input: &mut &str) -> PResult<u8> {
@@ -202,7 +219,37 @@ where
     P: Parser<&'a str, u8, ContextError> + Copy,
 {
     (parse_single_range_bound, "-", parse_single_range_bound).try_map_cut(
-        move |(lo, _, hi): (u64, _, u64)| ensure_number_range_in_range(lo, hi, range()),
+        move |(lo, _, hi): (u64, _, u64)| {
+            let range = range();
+
+            if lo > hi {
+                return Err(Error(format!(
+                    "range must be in ascending order; found {lo}-{hi}"
+                )));
+            }
+
+            if lo > u8::MAX as u64 {
+                return Err(Error(format!(
+                    "range must be in range {range:?}; found {lo}-{hi}"
+                )));
+            }
+
+            if hi > u8::MAX as u64 {
+                return Err(Error(format!(
+                    "range must be in range {range:?}; found {lo}-{hi}"
+                )));
+            }
+
+            let lo = lo as u8;
+            let hi = hi as u8;
+            if range.contains(&lo) && range.contains(&hi) {
+                Ok(lo..=hi)
+            } else {
+                Err(Error(format!(
+                    "range must be in range {range:?}; found {lo}-{hi}"
+                )))
+            }
+        },
     )
 }
 
@@ -247,57 +294,6 @@ where
             Ok(values)
         },
     )
-}
-
-fn ensure_number_in_range(n: u64, range: RangeInclusive<u8>) -> Result<u8, Error> {
-    if n > u8::MAX as u64 {
-        return Err(Error(format!(
-            "value must be in range {range:?}; found {n}"
-        )));
-    }
-
-    let n = n as u8;
-    if range.contains(&n) {
-        Ok(n)
-    } else {
-        Err(Error(format!(
-            "value must be in range {range:?}; found {n}"
-        )))
-    }
-}
-
-fn ensure_number_range_in_range(
-    lo: u64,
-    hi: u64,
-    range: RangeInclusive<u8>,
-) -> Result<RangeInclusive<u8>, Error> {
-    if lo > hi {
-        return Err(Error(format!(
-            "range must be in ascending order; found {lo}-{hi}"
-        )));
-    }
-
-    if lo > u8::MAX as u64 {
-        return Err(Error(format!(
-            "range must be in range {range:?}; found {lo}-{hi}"
-        )));
-    }
-
-    if hi > u8::MAX as u64 {
-        return Err(Error(format!(
-            "range must be in range {range:?}; found {lo}-{hi}"
-        )));
-    }
-
-    let lo = lo as u8;
-    let hi = hi as u8;
-    if range.contains(&lo) && range.contains(&hi) {
-        Ok(lo..=hi)
-    } else {
-        Err(Error(format!(
-            "range must be in range {range:?}; found {lo}-{hi}"
-        )))
-    }
 }
 
 trait ParserExt<I, O, E>: Parser<I, O, E> {
