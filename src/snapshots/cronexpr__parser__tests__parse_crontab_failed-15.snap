@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"1-10,2,10,50 1 * 1 TTT Asia/Shanghai\").unwrap_err()"
+---
+failed to parse crontab expression:
+1-10,2,10,50 1 * 1 TTT Asia/Shanghai
+                   ^ malformed expression
