@@ -72,15 +72,45 @@ pub struct Crontab {
     minutes: PossibleLiterals,
     hours: PossibleLiterals,
     months: PossibleLiterals,
-    days_of_month: PossibleLiterals,
+    days_of_month: PossibleDaysOfMonth,
     days_of_week: PossibleDaysOfWeek,
     timezone: TimeZone,
 }
 
 #[derive(Debug)]
 enum PossibleValue {
+    /// Literally match the value.
+    ///
+    /// For example, a possible literal of minute '15' matches when the minute is '15'.
     Literal(u8),
+    /// Parsed from '<day>W' in day-of-month field.
+    ///
+    /// The 'W' character is allowed for the day-of-month field. This character is used to specify
+    /// the weekday (Monday-Friday) nearest the given day. As an example, if "15W" is specified as
+    /// the value for the day-of-month field, the meaning is: "the nearest weekday to the 15th of
+    /// the month." So, if the 15th is a Saturday, the trigger fires on Friday the 14th. If the
+    /// 15th is a Sunday, the trigger fires on Monday the 16th. If the 15th is a Tuesday, then it
+    /// fires on Tuesday the 15th. However, if "1W" is specified as the value for day-of-month, and
+    /// the 1st is a Saturday, the trigger fires on Monday the 3rd, as it does not 'jump' over the
+    /// boundary of a month's days. The 'W' character can be specified only when the day-of-month
+    /// is a single day, not a range or list of days.
+    NearestWeekday(u8),
+    /// Parsed from '<day>L' in day-of-month field.
+    ///
+    /// 'L' stands for "last". When used in the day-of-month field, it specifies the last day of
+    /// the month.
+    LastDayOfMonth,
+    /// Parsed from '<weekday>L' in day-of-week field.
+    ///
+    /// 'L' stands for "last". When used in the day-of-week field, it allows specifying constructs
+    /// such as "the last Friday" ("5L") of a given month.
     LastDayOfWeek(Weekday),
+    /// Parsed from '<weekday>#<nth>' in day-of-week field.
+    ///
+    /// '#' is allowed for the day-of-week field, and must be followed by a number between one and
+    /// five. It allows specifying constructs such as "the second Friday" of a given month. For
+    /// example, entering "5#3" in the day-of-week field corresponds to the third Friday of every
+    /// month.
     NthDayOfWeek(u8, Weekday),
 }
 
@@ -134,6 +164,79 @@ impl PossibleDaysOfWeek {
                     continue;
                 }
             };
+        }
+
+        false
+    }
+}
+
+#[derive(Debug)]
+struct PossibleDaysOfMonth {
+    literals: BTreeSet<u8>,
+    last_day_of_month: bool,
+    nearest_weekdays: BTreeSet<u8>,
+}
+
+impl PossibleDaysOfMonth {
+    fn matches(&self, value: &Zoned) -> bool {
+        if self.literals.contains(&(value.day() as u8)) {
+            return true;
+        }
+
+        if self.last_day_of_month && (value + 1.day()).month() > value.month() {
+            return true;
+        }
+
+        for day in self.nearest_weekdays.iter() {
+            let day = *day as i8;
+
+            match value.weekday() {
+                // 'nearest weekday' matcher can never match weekends
+                Weekday::Saturday | Weekday::Sunday => {
+                    continue;
+                }
+                // if today is Tuesday, Wednesday, or Thursday, only if the day matches today can
+                // today be the nearest weekday
+                Weekday::Tuesday | Weekday::Wednesday | Weekday::Thursday => {
+                    if value.day() == day {
+                        return true;
+                    }
+                }
+                Weekday::Monday => {
+                    // if the day matches today, today is the nearest weekday
+                    if value.day() == day {
+                        return true;
+                    }
+
+                    // matches the last Sunday
+                    if value.day() - 1 == day {
+                        return true;
+                    }
+
+                    // matches the edge case: 1W and the 1st is Saturday
+                    if value.day() == 3 && day == 1 {
+                        return true;
+                    }
+                }
+                Weekday::Friday => {
+                    // if the day matches today, today is the nearest weekday
+                    if value.day() == day {
+                        return true;
+                    }
+
+                    let last_day_of_this_month = value.days_in_month();
+
+                    // matches the next Saturday
+                    if value.day() + 1 == day && day <= last_day_of_this_month {
+                        return true;
+                    }
+
+                    // matches the edge case: last day of month is Sunday
+                    if value.day() + 2 == day && day == last_day_of_this_month {
+                        return true;
+                    }
+                }
+            }
         }
 
         false
@@ -245,7 +348,7 @@ impl Driver {
             //  when both days_of_month and days_of_week are set; figure out how to handle it:
             //  https://crontab.guru/cron-bug.html
 
-            if !crontab.days_of_month.matches(next.day() as u8) {
+            if !crontab.days_of_month.matches(&next) {
                 next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
                 continue;
             }
@@ -395,5 +498,42 @@ mod tests {
         assert_snapshot!(driver.next_zoned().unwrap(), @"2025-10-31T18:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-30T18:00:00+08:00[Asia/Shanghai]");
         assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-29T18:00:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver(
+            "3 11 L JAN-FEB,5 * Asia/Shanghai",
+            "2024-09-24T00:08:35+08:00",
+        );
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-28T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-02-28T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2026-05-31T11:03:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver("3 11 17W,L * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-09-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-17T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-18T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-17T11:03:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver("3 11 1W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-11-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-02T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-02-03T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-03T11:03:00+08:00[Asia/Shanghai]");
+
+        let mut driver = make_driver("3 11 31W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2024-12-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-03-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-05-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-07-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-08-29T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(driver.next_zoned().unwrap(), @"2025-10-31T11:03:00+08:00[Asia/Shanghai]");
     }
 }
