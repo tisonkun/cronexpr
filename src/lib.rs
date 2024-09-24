@@ -665,7 +665,8 @@ impl Crontab {
     ///
     /// # Errors
     ///
-    /// This returns an error if fail to make timestamp from the input of `timestamp`.
+    /// This returns an error if fail to make timestamp from the input of `timestamp`. Or fail to
+    /// advance the timestamp.
     ///
     /// For more usages, see [the top-level documentation][crate].
     pub fn find_next<T>(&self, timestamp: T) -> Result<Zoned, Error>
@@ -692,41 +693,75 @@ impl Crontab {
                 )));
             }
 
-            if !self.months.matches(next.month() as u8) {
-                let rest_days = next.days_in_month() - next.day() + 1;
-                next = advance_time_and_round(next, rest_days.days(), Some(Unit::Day))?;
-                continue;
+            match self.matches_or_next(next)? {
+                Ok(matched) => break Ok(matched),
+                Err(candidate) => next = candidate,
             }
-
-            // implement Vixie's cron bug: https://crontab.guru/cron-bug.html
-            if self.days_of_month.start_with_asterisk || self.days_of_week.start_with_asterisk {
-                // 1. use intersection if any of the two fields start with '*'
-                let cond = self.days_of_month.matches(&next) && self.days_of_week.matches(&next);
-                if !cond {
-                    next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
-                    continue;
-                }
-            } else {
-                // 2. otherwise, use union
-                let cond = self.days_of_month.matches(&next) || self.days_of_week.matches(&next);
-                if !cond {
-                    next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
-                    continue;
-                }
-            }
-
-            if !self.hours.matches(next.hour() as u8) {
-                next = advance_time_and_round(next, 1.hour(), Some(Unit::Hour))?;
-                continue;
-            }
-
-            if !self.minutes.matches(next.minute() as u8) {
-                next = advance_time_and_round(next, 1.minute(), Some(Unit::Minute))?;
-                continue;
-            }
-
-            break Ok(next);
         }
+    }
+
+    /// Returns whether this cron value matches the given time.
+    ///
+    /// ## Errors
+    ///
+    /// This returns an error if fail to make timestamp from the input of `timestamp`. Or fail to
+    /// advance the timestamp.
+    ///
+    /// If you're sure the input is valid, you can treat the error as `false`.
+    ///
+    /// ```rust
+    /// let crontab = cronexpr::parse_crontab("*/10 0 * OCT MON UTC").unwrap();
+    /// assert!(crontab.matches("2020-10-19T00:20:00Z").unwrap());
+    /// assert!(crontab.matches("2020-10-19T00:30:00Z").unwrap());
+    /// assert!(!crontab.matches("2020-10-20T00:31:00Z").unwrap());
+    /// assert!(!crontab.matches("2020-10-20T01:30:00Z").unwrap());
+    /// assert!(!crontab.matches("2020-10-20T00:30:00Z").unwrap());
+    /// ```
+    pub fn matches<T>(&self, timestamp: T) -> Result<bool, Error>
+    where
+        T: TryInto<MakeTimestamp>,
+        T::Error: std::error::Error,
+    {
+        let zoned = timestamp
+            .try_into()
+            .map(|ts| ts.0.to_zoned(self.timezone.clone()))
+            .map_err(error_with_context("failed to parse timestamp"))?;
+
+        Ok(self.matches_or_next(zoned)?.is_ok())
+    }
+
+    /// The inner result returns [`Ok`] if `ts` matches the crontab. Otherwise, returns [`Err`] that
+    /// contains the next [`Zoned`] to test.
+    fn matches_or_next(&self, zdt: Zoned) -> Result<Result<Zoned, Zoned>, Error> {
+        if !self.months.matches(zdt.month() as u8) {
+            let rest_days = zdt.days_in_month() - zdt.day() + 1;
+            return advance_time_and_round(zdt, rest_days.days(), Some(Unit::Day)).map(Err);
+        }
+
+        // implement Vixie's cron bug: https://crontab.guru/cron-bug.html
+        if self.days_of_month.start_with_asterisk || self.days_of_week.start_with_asterisk {
+            // 1. use intersection if any of the two fields start with '*'
+            let cond = self.days_of_month.matches(&zdt) && self.days_of_week.matches(&zdt);
+            if !cond {
+                return advance_time_and_round(zdt, 1.day(), Some(Unit::Day)).map(Err);
+            }
+        } else {
+            // 2. otherwise, use union
+            let cond = self.days_of_month.matches(&zdt) || self.days_of_week.matches(&zdt);
+            if !cond {
+                return advance_time_and_round(zdt, 1.day(), Some(Unit::Day)).map(Err);
+            }
+        }
+
+        if !self.hours.matches(zdt.hour() as u8) {
+            return advance_time_and_round(zdt, 1.hour(), Some(Unit::Hour)).map(Err);
+        }
+
+        if !self.minutes.matches(zdt.minute() as u8) {
+            return advance_time_and_round(zdt, 1.minute(), Some(Unit::Minute)).map(Err);
+        }
+
+        Ok(Ok(zdt)) // zdt matches this crontab
     }
 }
 
@@ -762,8 +797,8 @@ impl Iterator for Driver {
     }
 }
 
-fn advance_time_and_round(zoned: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
-    let mut next = zoned;
+fn advance_time_and_round(zdt: Zoned, span: Span, unit: Option<Unit>) -> Result<Zoned, Error> {
+    let mut next = zdt;
 
     next = next.checked_add(span).map_err(error_with_context(&format!(
         "failed to advance timestamp; end with {next}"
