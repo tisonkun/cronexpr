@@ -21,6 +21,10 @@
 //!```rust
 //! let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
 //!
+//! // case 0. match timestamp
+//! assert!(crontab.matches("2024-09-24T04:02:00+08:00").unwrap());
+//! assert!(!crontab.matches("2024-09-24T04:01:00+08:00").unwrap());
+//!
 //! // case 1. find next timestamp with timezone
 //! assert_eq!(
 //!     crontab
@@ -716,7 +720,12 @@ impl Crontab {
         }
     }
 
-    /// Returns whether this cron value matches the given time.
+    /// Returns whether this crontab matches the given timestamp.
+    ///
+    /// The function checks each cron field (minutes, hours, day of month, month) against the
+    /// provided `timestamp` to determine if it aligns with the crontab expression. Each field is
+    /// checked for a match, and all fields must match for the entire pattern to be considered a
+    /// match.
     ///
     /// ## Errors
     ///

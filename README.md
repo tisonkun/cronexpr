@@ -32,6 +32,10 @@ Here is a quick example that shows how to parse a cron expression and drive it w
 fn main() {
     let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
 
+    // case 0. match timestamp
+    assert!(crontab.matches("2024-09-24T04:02:00+08:00").unwrap());
+    assert!(!crontab.matches("2024-09-24T04:01:00+08:00").unwrap());
+
     // case 1. find next timestamp with timezone
     assert_eq!(
         crontab
