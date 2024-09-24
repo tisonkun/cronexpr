@@ -74,7 +74,7 @@
 //!
 //! For more complex and edge cases, read the [Edge cases](#edge-cases) section.
 //!
-//! ## Syntax
+//! ## Syntax overview
 //!
 //! This crates supports all the syntax of [standard crontab] and most of the non-standard
 //! extensions.
@@ -103,12 +103,12 @@
 //! * [Last day of week (`5L`)](#last-day-of-week-5l)
 //! * [Nth day of week (`5#3`)](#nth-day-of-week-53)
 //!
-//! ### Timezone
+//! ## Timezone
 //!
 //! Timezone is parsed internally by [`jiff::tz::TimeZone::get`][TimeZone::get]. It supports all the
 //! timezone names in the IANA Time Zone Database. See [the list of time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List).
 //!
-//! ### Single value
+//! ## Single value
 //!
 //! Every field (except timezone) can be a single value.
 //!
@@ -126,12 +126,12 @@
 //!
 //! Days of week and days of month support extra syntax, read their dedicated sections below.
 //!
-//! ### Asterisk
+//! ## Asterisk
 //!
 //! Asterisks (also known as wildcard) represents "all". For example, using `* * * * *` will run
 //! every minute. Using `* * * * 1` will run every minute only on Monday.
 //!
-//! ### Range
+//! ## Range
 //!
 //! Hyphen (`-`) defines ranges. For example, `JAN-JUN` indicates every month from January to June,
 //! _inclusive_.
@@ -139,7 +139,7 @@
 //! Range bound can be any valid [single value](#single-value), but the left bound must be less than
 //! or equal to the right bound.
 //!
-//! ### Step
+//! ## Step
 //!
 //! In Vixie's cron, slash (`/`) can be combined with ranges to specify step values.
 //!
