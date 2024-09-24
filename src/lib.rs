@@ -68,6 +68,189 @@
 //!     ]
 //! );
 //! ```
+//!
+//! For more complex and edge cases, read the [Edge cases](#edge-cases) section.
+//!
+//! ## Syntax
+//!
+//! This crates supports all the syntax of [standard crontab] and most of the non-standard
+//! extensions.
+//!
+//! The mainly difference is that this crate always requires the timezone to be specified in the
+//! crontab expression. This is because the timezone is necessary to determine the next timestamp.
+//!
+//! [standard crontab]: https://en.wikipedia.org/wiki/Cron#Cron_expression
+//!
+//! ```markdown
+//! *    *    *    *    *    <timezone>
+//! ┬    ┬    ┬    ┬    ┬    ----┬----
+//! │    │    │    │    │        |
+//! │    │    │    │    │        └──── timezone (Asia/Shanghai, UTC, etc.)
+//! │    │    │    │    └───────────── day of week (0-7, SUN-SAT, 1L-7L) (0 or 7 is Sunday)
+//! │    │    │    └────────────────── month (1-12, JAN-DEC)
+//! │    │    └─────────────────────── day of month (1-31, L, 15W)
+//! │    └──────────────────────────── hour (0-23)
+//! └───────────────────────────────── minute (0-59)
+//! ```
+//!
+//! ### Timezone
+//!
+//! Timezone is parsed internally by [`jiff::tz::TimeZone::get`][TimeZone::get]. It supports all the
+//! timezone names in the IANA Time Zone Database. See [the list of time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List).
+//!
+//! ### Single value
+//!
+//! Every field (except timezone) can be a single value.
+//!
+//! * For minutes, it can be from 0 to 59.
+//! * For hours, it can be from 0 to 23.
+//! * For days of month, it can be from 1 to 31.
+//!
+//! For months, it can be 1-12. Alternatively, it can be the first three letters of the English
+//! name of the month (case-insensitive), such as `JAN`, `Feb`, etc. `JAN` will be mapped to 1,
+//! `Feb` will be mapped to 2, and so on.
+//!
+//! For days of week, it can be 0-7, where both 0 and 7 represent Sunday. Alternatively, it can be
+//! the first three letters of the English name of the day (case-insensitive), such as `SUN`, `Mon`,
+//! etc. `SUN` will be mapped to 0, `Mon` will be mapped to 1, and so on.
+//!
+//! Days of week and days of month support extra syntax, read their dedicated sections below.
+//!
+//! ### Asterisk
+//!
+//! Asterisks (also known as wildcard) represents "all". For example, using `* * * * *` will run
+//! every minute. Using `* * * * 1` will run every minute only on Monday.
+//!
+//! ### Range
+//!
+//! Hyphen (`-`) defines ranges. For example, `JAN-JUN` indicates every month from January to June,
+//! _inclusive_.
+//!
+//! Range bound can be any valid [single value](#single-value), but the left bound must be less than
+//! or equal to the right bound.
+//!
+//! ### Step
+//!
+//! In Vixie's cron, slash (`/`) can be combined with ranges to specify step values.
+//!
+//! For example, `*/10` in the minutes field indicates every 10 minutes (see note below about
+//! frequencies). It is shorthand for the more verbose POSIX form `00,10,20,30,40,50`.
+//!
+//! Note that frequencies in general cannot be expressed; only step values which evenly divide their
+//! range express accurate frequencies (for minutes and seconds, that's `/2`, `/3`, `/4`, `/5`,
+//! `/6`, `/10`, `/12`, `/15`, `/20` and `/30` because 60 is evenly divisible by those numbers; for
+//! hours, that's `/2`, `/3`, `/4`, `/6`, `/8` and `/12`); all other possible "steps" and all other
+//! fields yield inconsistent "short" periods at the end of the time-unit before it "resets" to the
+//! next minute, hour, or day; for example, entering `*/5` for the day field sometimes executes
+//! after 1, 2, or 3 days, depending on the month and leap year; this is because cron is stateless
+//! (it does not remember the time of the last execution nor count the difference between it and
+//! now, required for accurate frequency counting—instead, cron is a mere pattern-matcher).
+//!
+//! This crate requires the step value to be in the range of the field and not zero.
+//!
+//! The range to be stepped can be any valid [single value](#single-value), an
+//! [asterisks](#asterisks), or [range](#range).
+//!
+//! When it's a single value `v`, it's expanded to a range `v-<field range end>`. For example,
+//! `15/XX` is the same as a Vixie's cron schedule of `15-59/10` in the minutes section. Similarly,
+//! you can remove the extra `-23` from `0-23/XX`, `-31` from `1-31/XX`, and `-12` from `1-12/XX`
+//! for hours, days, and months; respectively.
+//!
+//! Note that this is to support the existing widely adopted syntax, users are encouraged to use
+//! the more explicit form.
+//!
+//! ## List
+//!
+//! Commas (',') are used to separate items of a list. For example, using `MON,WED,FRI` in the 5th
+//! field (day of week) means Mondays, Wednesdays and Fridays.
+//!
+//! The list can contain any valid [single value](#single-value), [asterisks](#asterisks),
+//! [ranges](#range), or [steps](#step). For days of week and days of month, it can also contain
+//! extra syntax, read their dedicated sections below.
+//!
+//! List items are parsed delimited by commas. This takes the highest precedence in the parsing.
+//! Thus, `1-10,40-50/2` is parsed as `1,2,3,4,5,6,7,8,9,10,40,42,44,46,48,50`.
+//!
+//! ## Day of month extension
+//!
+//! All the extensions below can be specified only alone or as a single item of a list, not in a
+//! range or a step.
+//!
+//! ### Last day of month (`L`)
+//!
+//! The 'L' character is allowed for the day-of-month field. This character specifies the last day
+//! of the month.
+//!
+//! ### Nearest weekday ('1W', `15W`, etc.)
+//!
+//! The 'W' character is allowed for the day-of-month field. This character is used to specify the
+//! weekday (Monday-Friday) nearest the given day. As an example, if `15W` is specified as the value
+//! for the day-of-month field, the meaning is: "the nearest weekday to the 15th of the month." So,
+//! if the 15th is a Saturday, the trigger fires on Friday the 14th. If the 15th is a Sunday, the
+//! trigger fires on Monday the 16th. If the 15th is a Tuesday, then it fires on Tuesday the 15th.
+//! However, if `1W` is specified as the value for day-of-month, and the 1st is a Saturday, the
+//! trigger fires on Monday the 3rd, as it does not 'jump' over the boundary of a month's days.
+//!
+//! ## Day of week extension
+//!
+//! All the extensions below can be specified only alone or as a single item of a list, not in a
+//! range or a step.
+//!
+//! ### Last day of week (`5L`)
+//!
+//! The 'L' character is allowed for the day-of-week field. This character specifies constructs such
+//! as "the last Friday" (`5L`) of a given month.
+//!
+//! ### Nth day of week (`5#3`)
+//!
+//! The '#' character is allowed for the day-of-week field, and must be followed by a number between
+//! one and five. It allows specifying constructs such as "the second Friday" of a given month. For
+//! example, entering `5#3` in the day-of-week field corresponds to the third Friday of every month.
+//!
+//! ## Edge cases
+//!
+//! ### The Vixie's cron bug became the de-facto standard
+//!
+//! Read [the article](https://crontab.guru/cron-bug.html) for more details.
+//!
+//! Typically, `0 12 *,10 * 2` is not equal to `0 12 10,* * 2`.
+//!
+//! ```rust
+//! let crontab1 = cronexpr::parse_crontab("0 12 *,10 * 2 UTC").unwrap();
+//! let crontab2 = cronexpr::parse_crontab("0 12 10,* * 2 UTC").unwrap();
+//!
+//! let ts = "2024-09-24T13:06:52Z";
+//! assert_ne!(
+//!     crontab1.find_next(ts).unwrap().to_string(),
+//!     crontab2.find_next(ts).unwrap().to_string()
+//! );
+//! ```
+//!
+//! This crate implements the Vixie's cron behavior. That is,
+//!
+//! 1. Check if either the day of month or the day of week starts with asterisk (`*`).
+//! 2. If so, match these two fields in interaction.
+//! 3. If not, match these two fields in union.
+//!
+//! ### Nearest weekday at the edge of the month
+//!
+//! Nearest weekday does not 'jump' over the boundary of a month's days.
+//!
+//! Thus, if `1W` is specified as the value for day-of-month, and the 1st is a Saturday, the trigger
+//! fires on Monday the 3rd. (Although the nearest weekday to the 1st is the last day of the
+//! previous month.)
+//!
+//! If `31W` is specified as the value for day-of-month, and the 31st is a Sunday, the trigger fires
+//! on Friday the 29th. (Although the nearest weekday to the 31st is the 1st of the next month.)
+//! This is the same for `30W`, `29W`, `28W`, etc. if the day is the last day of the month.
+//!
+//! If `31W` is specified as the value for day-of-month, the month does not have 31 days, the
+//! trigger won't fire in the month. This is the same for `30W`, `29W`, etc.
+//!
+//! ### Nth day of week does not exist
+//!
+//! If the Nth day of week does not exist in the month, the trigger won't fire in the month.
+//! This happens only when the month has less than five of the weekday.
 
 use std::collections::BTreeSet;
 use std::collections::HashSet;
@@ -405,7 +588,7 @@ impl Crontab {
     ///
     /// # Errors
     ///
-    /// This returns an error if fail to make timestamp from the input `timestamp`.
+    /// This returns an error if fail to make timestamp from the input of `timestamp`.
     ///
     /// For more usages, see [the top-level documentation][crate].
     pub fn find_next<T>(&self, timestamp: T) -> Result<Zoned, Error>

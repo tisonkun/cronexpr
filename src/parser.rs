@@ -59,7 +59,8 @@ pub fn normalize_crontab(input: &str) -> String {
         .join(" ")
 }
 
-/// Parse a crontab expression to [`Crontab`].
+/// Parse a crontab expression to [`Crontab`]. See [the top-level documentation][crate] for the full
+/// syntax definitions.
 ///
 /// ```rust
 /// use cronexpr::parse_crontab;
