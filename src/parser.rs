@@ -71,8 +71,6 @@ pub fn normalize_crontab(input: &str) -> String {
 /// parse_crontab("2 4 */3 * 0-6 Asia/Shanghai").unwrap();
 /// ```
 pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
-    let normalized = normalize_crontab(input);
-
     fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
         if start < input.len() {
             Ok(input[start..]
@@ -84,8 +82,13 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
         }
     }
 
+    let normalized = normalize_crontab(input);
+    if normalized.is_empty() {
+        return Err(format_error(&normalized, "", "cannot be empty"));
+    }
+
     let minutes_start = 0;
-    let minutes_end = find_next_part(&normalized, minutes_start, "minutes")?;
+    let minutes_end = normalized.find(' ').unwrap_or_else(|| normalized.len());
     let minutes = parse_minutes
         .parse(&normalized[..minutes_end])
         .map_err(|err| format_parse_error(&normalized, minutes_start, err))?;
@@ -136,12 +139,14 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     })
 }
 
-fn format_incomplete_error(input: &str, next_part: &str) -> Error {
+fn format_error(input: &str, indent: &str, reason: &str) -> Error {
     let context = "failed to parse crontab expression";
+    Error(format!("{context}:\n{input}\n{indent}^ {reason}"))
+}
+
+fn format_incomplete_error(input: &str, next_part: &str) -> Error {
     let indent = " ".repeat(input.len());
-    Error(format!(
-        "{context}:\n{input}\n{indent}^ missing {next_part}"
-    ))
+    format_error(input, &indent, &format!("missing {next_part}"))
 }
 
 fn format_parse_error(
@@ -149,8 +154,6 @@ fn format_parse_error(
     start: usize,
     parse_error: winnow::error::ParseError<&str, ContextError>,
 ) -> Error {
-    let context = "failed to parse crontab expression";
-
     let offset = start + parse_error.offset();
     let indent = " ".repeat(offset);
 
@@ -161,7 +164,7 @@ fn format_parse_error(
         &error
     };
 
-    Error(format!("{context}:\n{input}\n{indent}^ {error}"))
+    format_error(input, &indent, error)
 }
 
 fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
@@ -667,6 +670,7 @@ mod tests {
         assert_snapshot!(parse_crontab("0 0 1 1 5 ").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z Z").unwrap_err());
+        assert_snapshot!(parse_crontab("").unwrap_err());
     }
 
     #[test]
