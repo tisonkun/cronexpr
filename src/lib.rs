@@ -221,7 +221,9 @@
 //!
 //! let ts = "2024-09-24T13:06:52Z";
 //! assert_ne!(
+//!     // "2024-10-01T12:00:00+00:00[UTC]"
 //!     crontab1.find_next(ts).unwrap().to_string(),
+//!     // "2024-09-25T12:00:00+00:00[UTC]"
 //!     crontab2.find_next(ts).unwrap().to_string()
 //! );
 //! ```
@@ -231,6 +233,73 @@
 //! 1. Check if either the day of month or the day of week starts with asterisk (`*`).
 //! 2. If so, match these two fields in interaction.
 //! 3. If not, match these two fields in union.
+//!
+//! So, explain the example above:
+//!
+//! The first one's (`0 12 *,10 * 2 UTC`) day-of-month starts with an asterisk so cron uses
+//! intersect. The schedule fires only on Tuesdays because `all-days-of-month ∩ Tuesday = Tuesday`.
+//! It is the same schedule as `0 12 * * 2 UTC`.
+//!
+//! The second one's (`0 12 10,* * 2 UTC`) day-of-month has an asterisk in the day-of-month field,
+//! but not as the first character. So cron uses union. The schedule fires every day because
+//! `all-days-of-month ∪ Tuesday = all-days-of-month`. It is therefore the same as `0 12 * * * UTC`.
+//!
+//! Also, `0 12 1-31 * 2` is not equal to `0 12 * * 2`.
+//!
+//! ```rust
+//! let crontab1 = cronexpr::parse_crontab("0 12 1-31 * 2 UTC").unwrap();
+//! let crontab2 = cronexpr::parse_crontab("0 12 * * 2 UTC").unwrap();
+//!
+//! let ts = "2024-09-24T13:06:52Z";
+//! assert_ne!(
+//!     // "2024-09-25T12:00:00+00:00[UTC]"
+//!     crontab1.find_next(ts).unwrap().to_string(),
+//!     // "2024-10-01T12:00:00+00:00[UTC]"
+//!     crontab2.find_next(ts).unwrap().to_string()
+//! );
+//! ```
+//!
+//! The first one fires every day (same as `0 12 1-31 * * UTC` or as `0 12 * * * UTC`), and the
+//! second schedule fires only on Tuesdays.
+//!
+//! This bug is most likely to affect you when using step values. Quick reminder on step values:
+//! `0-10/2` means every minute value from zero through ten (same as the list `0,2,4,6,8,10`), and
+//! `*/3` means every third value. By using an asterisk with a step value for day-of-month or
+//! day-of-week we put cron into the intersect mode producing unexpected results.
+//!
+//! Most of the time, we choose to use the wildcard to make the cron more legible. However, by now
+//! you understand why `0 12 */2 * 0,6` does not run on every uneven day of the month plus on
+//! Saturday and Sundays. Instead, due to this bug, it only runs if today is uneven and is also on a
+//! weekend. To accomplish the former behaviour, you have to rewrite the schedule as `0 12 1-31/2 *
+//! 0,6`.
+//!
+//! ```rust
+//! fn drive(driver: &mut cronexpr::Driver) -> String {
+//!     driver.next().unwrap().unwrap().to_string()
+//! }
+//!
+//! let crontab1 = cronexpr::parse_crontab("0 12 */2 * 0,6 UTC").unwrap();
+//! let mut driver1 = crontab1
+//!     .drive("2024-09-24T13:06:52Z", None::<cronexpr::MakeTimestamp>)
+//!     .unwrap();
+//!
+//! assert_eq!(drive(&mut driver1), "2024-09-29T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver1), "2024-10-05T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver1), "2024-10-13T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver1), "2024-10-19T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver1), "2024-10-27T12:00:00+00:00[UTC]");
+//!
+//! let crontab2 = cronexpr::parse_crontab("0 12 1-31/2 * 0,6 UTC").unwrap();
+//! let mut driver2 = crontab2
+//!     .drive("2024-09-24T13:06:52Z", None::<cronexpr::MakeTimestamp>)
+//!     .unwrap();
+//!
+//! assert_eq!(drive(&mut driver2), "2024-09-25T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver2), "2024-09-27T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver2), "2024-09-28T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver2), "2024-09-29T12:00:00+00:00[UTC]");
+//! assert_eq!(drive(&mut driver2), "2024-10-01T12:00:00+00:00[UTC]");
+//! ```
 //!
 //! ### Nearest weekday at the edge of the month
 //!
@@ -631,7 +700,7 @@ impl Crontab {
                 }
             } else {
                 // 2. otherwise, use union
-                let cond = self.days_of_month.matches(&next) && self.days_of_week.matches(&next);
+                let cond = self.days_of_month.matches(&next) || self.days_of_week.matches(&next);
                 if !cond {
                     next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
                     continue;
