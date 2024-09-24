@@ -18,34 +18,78 @@
 
 ## Overview
 
-This library provides functionalities to calculate the next timestamp matching a given crontab pattern.
+A library to parse and drive the crontab expression.
 
-## Usage
+## Documentation
 
-```shell
-cargo add cronexpr
-```
+* [API documentation on docs.rs](https://docs.rs/cronexpr)
+
+## Example
+
+Here is a quick example that shows how to parse a cron expression and drive it with a timestamp:
 
 ```rust
 fn main() {
-    use std::str::FromStr;
+    let crontab = cronexpr::parse_crontab("2 4 * * * Asia/ Shanghai").unwrap();
 
-    // with jiff timestamp
-    let timestamp = jiff::Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
-    let crontab = cronexpr::Crontab::from_str("0 0 1 1 * Asia/ Shanghai").unwrap();
-    let driver = crontab.drive_with_timestamp(timestamp);
-    assert_eq!(driver.find_next_timestamp().unwrap().as_millisecond(), 1735660800000);
+    // case 1. find next timestamp with timezone
+    assert_eq!(
+        crontab
+            .find_next("2024-09-24T10:06:52+08:00")
+            .unwrap()
+            .to_string(),
+        "2024-09-25T04:02:00+08:00[Asia/ Shanghai]"
+    );
 
-    // for compatibility, bridge by timestamp milliseconds (crontab support at most second level so it's fine)
-    let crontab: cronexpr::Crontab = "2 4 * * * Asia/ Shanghai".parse().unwrap();
-    let driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
-    assert_eq!(driver.find_next_timestamp_millis().unwrap(), 1704052920000);
+    // case 2. iter over next timestamps without upper bound
+    let driver = crontab
+        .drive("2024-09-24T10:06:52+08:00", None::<cronexpr::MakeTimestamp>)
+        .unwrap();
+    assert_eq!(
+        driver
+            .take(5)
+            .map(|ts| ts.map(|ts| ts.to_string()))
+            .collect::<Result<Vec<_>, cronexpr::Error>>()
+            .unwrap(),
+        vec![
+            "2024-09-25T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-26T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-27T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-28T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-29T04:02:00+08:00[Asia/ Shanghai]",
+        ]
+    );
 
-    // can also be used as an iterator
-    let crontab: cronexpr::Crontab = "2 4 * * * Asia/ Shanghai".parse().unwrap();
-    let mut driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
-    assert_eq!(driver.next_timestamp_millis().unwrap(), 1704052920000);
-    assert_eq!(driver.next_timestamp_millis().unwrap(), 1704139320000);
-    assert_eq!(driver.next_timestamp_millis().unwrap(), 1704225720000);
+    // case 3. iter over next timestamps with upper bound
+    let driver = crontab
+        .drive(
+            "2024-09-24T10:06:52+08:00",
+            Some("2024-10-01T00:00:00+08:00"),
+        )
+        .unwrap();
+    assert_eq!(
+        driver
+            .map(|ts| ts.map(|ts| ts.to_string()))
+            .collect::<Result<Vec<_>, cronexpr::Error>>()
+            .unwrap(),
+        vec![
+            "2024-09-25T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-26T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-27T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-28T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-29T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-30T04:02:00+08:00[Asia/ Shanghai]",
+        ]
+    );
 }
+```
+
+## Usage
+
+`cronexpr` is [on crates.io](https://crates.io/crates/cronexpr) and can be used by adding `cronexpr` to your dependencies in your project's `Cargo.toml`. Or more simply, just run `cargo add cronexpr`.
+
+
+
+```shell
+cargo add cronexpr
 ```

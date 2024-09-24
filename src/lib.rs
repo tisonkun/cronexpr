@@ -15,6 +15,59 @@
 //! # Crontab
 //!
 //! A library to parse and drive the crontab expression.
+//!
+//! Here is a quick example that shows how to parse a cron expression and drive it with a timestamp:
+//!
+//!```rust
+//! let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
+//! assert_eq!(
+//!     crontab
+//!         .find_next("2024-09-24T10:06:52+08:00")
+//!         .unwrap()
+//!         .to_string(),
+//!     "2024-09-25T04:02:00+08:00[Asia/Shanghai]"
+//! );
+//!
+//! let driver = crontab
+//!     .drive("2024-09-24T10:06:52+08:00", None::<cronexpr::MakeTimestamp>)
+//!     .unwrap();
+//!
+//! assert_eq!(
+//!     driver
+//!         .take(5)
+//!         .map(|ts| ts.map(|ts| ts.to_string()))
+//!         .collect::<Result<Vec<_>, cronexpr::Error>>()
+//!         .unwrap(),
+//!     vec![
+//!         "2024-09-25T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-26T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-27T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-28T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-29T04:02:00+08:00[Asia/Shanghai]",
+//!     ]
+//! );
+//!
+//! let driver = crontab
+//!     .drive(
+//!         "2024-09-24T10:06:52+08:00",
+//!         Some("2024-10-01T00:00:00+08:00"),
+//!     )
+//!     .unwrap();
+//! assert_eq!(
+//!     driver
+//!         .map(|ts| ts.map(|ts| ts.to_string()))
+//!         .collect::<Result<Vec<_>, cronexpr::Error>>()
+//!         .unwrap(),
+//!     vec![
+//!         "2024-09-25T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-26T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-27T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-28T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-29T04:02:00+08:00[Asia/Shanghai]",
+//!         "2024-09-30T04:02:00+08:00[Asia/Shanghai]",
+//!     ]
+//! );
+//! ```
 
 use std::collections::BTreeSet;
 use std::collections::HashSet;
@@ -357,12 +410,12 @@ impl Crontab {
     /// For more usages, see [the top-level documentation][crate].
     pub fn find_next<T>(&self, timestamp: T) -> Result<Zoned, Error>
     where
-        T: TryInto<Timestamp>,
+        T: TryInto<MakeTimestamp>,
         T::Error: std::error::Error,
     {
         let zoned = timestamp
             .try_into()
-            .map(|ts| ts.to_zoned(self.timezone.clone()))
+            .map(|ts| ts.0.to_zoned(self.timezone.clone()))
             .map_err(error_with_context("failed to parse timestamp"))?;
 
         // checked at most 4 years to cover the leap year case
