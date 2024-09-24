@@ -29,8 +29,15 @@ A library to parse and drive the crontab expression.
 Here is a quick example that shows how to parse a cron expression and drive it with a timestamp:
 
 ```rust
+use std::str::FromStr;
+use cronexpr::MakeTimestamp;
+
 fn main() {
     let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
+
+    // case 0. match timestamp
+    assert!(crontab.matches("2024-09-24T04:02:00+08:00").unwrap());
+    assert!(!crontab.matches("2024-09-24T04:01:00+08:00").unwrap());
 
     // case 1. find next timestamp with timezone
     assert_eq!(
@@ -42,11 +49,9 @@ fn main() {
     );
 
     // case 2. iter over next timestamps without upper bound
-    let driver = crontab
-        .drive("2024-09-24T10:06:52+08:00", None::<cronexpr::MakeTimestamp>)
-        .unwrap();
+    let iter = crontab.iter_after("2024-09-24T10:06:52+08:00").unwrap();
     assert_eq!(
-        driver
+        iter
             .take(5)
             .map(|ts| ts.map(|ts| ts.to_string()))
             .collect::<Result<Vec<_>, cronexpr::Error>>()
@@ -61,14 +66,11 @@ fn main() {
     );
 
     // case 3. iter over next timestamps with upper bound
-    let driver = crontab
-        .drive(
-            "2024-09-24T10:06:52+08:00",
-            Some("2024-10-01T00:00:00+08:00"),
-        )
-        .unwrap();
+    let iter = crontab.iter_after("2024-09-24T10:06:52+08:00").unwrap();
+    let end = MakeTimestamp::from_str("2024-10-01T00:00:00+08:00").unwrap();
     assert_eq!(
-        driver
+        iter
+            .take_while(|ts| ts.as_ref().map(|ts| ts.timestamp() < end.0).unwrap_or(true))
             .map(|ts| ts.map(|ts| ts.to_string()))
             .collect::<Result<Vec<_>, cronexpr::Error>>()
             .unwrap(),

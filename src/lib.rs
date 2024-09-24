@@ -19,7 +19,15 @@
 //! Here is a quick example that shows how to parse a cron expression and drive it with a timestamp:
 //!
 //!```rust
+//! use std::str::FromStr;
+//!
+//! use cronexpr::MakeTimestamp;
+//!
 //! let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
+//!
+//! // case 0. match timestamp
+//! assert!(crontab.matches("2024-09-24T04:02:00+08:00").unwrap());
+//! assert!(!crontab.matches("2024-09-24T04:01:00+08:00").unwrap());
 //!
 //! // case 1. find next timestamp with timezone
 //! assert_eq!(
@@ -31,12 +39,9 @@
 //! );
 //!
 //! // case 2. iter over next timestamps without upper bound
-//! let driver = crontab
-//!     .drive("2024-09-24T10:06:52+08:00", None::<cronexpr::MakeTimestamp>)
-//!     .unwrap();
+//! let iter = crontab.iter_after("2024-09-24T10:06:52+08:00").unwrap();
 //! assert_eq!(
-//!     driver
-//!         .take(5)
+//!     iter.take(5)
 //!         .map(|ts| ts.map(|ts| ts.to_string()))
 //!         .collect::<Result<Vec<_>, cronexpr::Error>>()
 //!         .unwrap(),
@@ -50,14 +55,10 @@
 //! );
 //!
 //! // case 3. iter over next timestamps with upper bound
-//! let driver = crontab
-//!     .drive(
-//!         "2024-09-24T10:06:52+08:00",
-//!         Some("2024-10-01T00:00:00+08:00"),
-//!     )
-//!     .unwrap();
+//! let iter = crontab.iter_after("2024-09-24T10:06:52+08:00").unwrap();
+//! let end = MakeTimestamp::from_str("2024-10-01T00:00:00+08:00").unwrap();
 //! assert_eq!(
-//!     driver
+//!     iter.take_while(|ts| ts.as_ref().map(|ts| ts.timestamp() < end.0).unwrap_or(true))
 //!         .map(|ts| ts.map(|ts| ts.to_string()))
 //!         .collect::<Result<Vec<_>, cronexpr::Error>>()
 //!         .unwrap(),
@@ -283,32 +284,28 @@
 //! weekend. To accomplish the former behaviour, you have to rewrite the schedule as `0 12 1-31/2 *
 //! 0,6`.
 //!
-//! ```rust
-//! fn drive(driver: &mut cronexpr::Driver) -> String {
-//!     driver.next().unwrap().unwrap().to_string()
+//!```rust
+//! fn next(iter: &mut cronexpr::CronTimesIter) -> String {
+//!     iter.next().unwrap().unwrap().to_string()
 //! }
 //!
 //! let crontab1 = cronexpr::parse_crontab("0 12 */2 * 0,6 UTC").unwrap();
-//! let mut driver1 = crontab1
-//!     .drive("2024-09-24T13:06:52Z", None::<cronexpr::MakeTimestamp>)
-//!     .unwrap();
+//! let mut iter1 = crontab1.iter_after("2024-09-24T13:06:52Z").unwrap();
 //!
-//! assert_eq!(drive(&mut driver1), "2024-09-29T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver1), "2024-10-05T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver1), "2024-10-13T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver1), "2024-10-19T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver1), "2024-10-27T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter1), "2024-09-29T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter1), "2024-10-05T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter1), "2024-10-13T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter1), "2024-10-19T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter1), "2024-10-27T12:00:00+00:00[UTC]");
 //!
 //! let crontab2 = cronexpr::parse_crontab("0 12 1-31/2 * 0,6 UTC").unwrap();
-//! let mut driver2 = crontab2
-//!     .drive("2024-09-24T13:06:52Z", None::<cronexpr::MakeTimestamp>)
-//!     .unwrap();
+//! let mut iter2 = crontab2.iter_after("2024-09-24T13:06:52Z").unwrap();
 //!
-//! assert_eq!(drive(&mut driver2), "2024-09-25T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver2), "2024-09-27T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver2), "2024-09-28T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver2), "2024-09-29T12:00:00+00:00[UTC]");
-//! assert_eq!(drive(&mut driver2), "2024-10-01T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter2), "2024-09-25T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter2), "2024-09-27T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter2), "2024-09-28T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter2), "2024-09-29T12:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter2), "2024-10-01T12:00:00+00:00[UTC]");
 //! ```
 //!
 //! ### Nearest weekday at the edge of the month
@@ -330,6 +327,110 @@
 //!
 //! If the Nth day of week does not exist in the month, the trigger won't fire in the month.
 //! This happens only when the month has less than five of the weekday.
+//!
+//! ## FAQ
+//!
+//! ### Why do you create this crate?
+//!
+//! The other way when I was implementing features like [`CREATE TASK` in Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-task),
+//! it comes to a requirement to support parsing and driving a crontab expression.
+//!
+//! Typically, the language interface looks like:
+//!
+//! ```schedule
+//! CREATE TASK do_retention
+//! SCHEDULE = '* * * * * Asia/Shanghai'
+//! AS
+//!     DELETE FROM t WHERE now() - ts > 'PT10s'::interval;
+//! ```
+//!
+//! The execution part of a traditional cron is the statement (`DELETE FROM ...`) here. Thus,
+//! what I need is a library to parse the crontab expression and find the next timestamp to execute
+//! the statement, without the need to execute the statement in the crontab library itself.
+//!
+//! There are several good candidates like [`croner`] and [`saffron`], but they are not suitable for
+//! my use case. Both of them do _not_ support defining timezone in the expression which is
+//! essential to my use case. Although `croner` support specific timezone later when matching, the
+//! user experience is quite different. Also, the syntax that `croner` or `saffron` supports is
+//! subtly different from my demand.
+//!
+//! Other libraries are unmaintained or immature to use.
+//!
+//! Last, most candidates using [`chrono`] to processing datetime, while I'd prefer to extend the
+//! [`jiff`] ecosystem.
+//!
+//! ### Why does the crate require the timezone to be specified in the crontab expression?
+//!
+//! Mainly two reasons:
+//!
+//! 1. Without timezone information, you can _not_ perform daylight saving time (DST) arithmetic,
+//!    and the result of the next timestamp may be incorrect.
+//! 2. When define the crontab expression, people usually have a specific timezone in mind. It's
+//!    more natural to specify the timezone in the expression, instead of having UTC as an implicit
+//!    and forcing the user to convert the datetime to UTC.
+//!
+//! If there is a third reason, that is, it's how Snowflake does.
+//!
+//! ### Why does [`Crontab::find_next`] and [`Crontab::iter_after`] only support exclusive bounds?
+//!
+//! Crontab jobs are schedule at most every minute. Bike-shedding the inclusive bounds is not
+//! practical.
+//!
+//! If you'd like to try to match the boundary anyway, you can test it with [`Crontab::matches`]
+//! before calling [`Crontab::find_next`] or [`Crontab::iter_after`].
+//!
+//! ### Why not support aliases like `@hourly` and `@reboot`?
+//!
+//! They are too handy to support and are totally different syntax in parsing.
+//!
+//! `@reboot` is meaningless since this crate only parse and drive a crontab expression, rather
+//! than execute the command. Other aliases should be easily converted to the syntax this crate
+//! supports.
+//!
+//! ### Why not support seconds and/or years?
+//!
+//! Crontab jobs are typically _not_ frequent tasks that run in seconds. Especially for scheduling
+//! tasks in a distributed database, trying to specify a task in seconds is impractical.
+//!
+//! I don't actually schedule the task exactly at the timestamp, but record the previous timestamp,
+//! and then schedule the task when `now` is greater than or equal to the next timestamp.
+//!
+//! For years, it's not a common use case for crontab jobs. This crate can already specify "every
+//! year".
+//!
+//! ```rust
+//! fn next(iter: &mut cronexpr::CronTimesIter) -> String {
+//!     iter.next().unwrap().unwrap().to_string()
+//! }
+//!
+//! // every year at 00:00:00 on January 1st
+//! let crontab = cronexpr::parse_crontab("0 0 1 JAN * UTC").unwrap();
+//! let mut iter = crontab.iter_after("2024-09-24T13:06:52Z").unwrap();
+//!
+//! assert_eq!(next(&mut iter), "2025-01-01T00:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter), "2026-01-01T00:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter), "2027-01-01T00:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter), "2028-01-01T00:00:00+00:00[UTC]");
+//! ```
+//!
+//! If you need to match certain years, please do it externally.
+//!
+//! ### Why not support passing command to execute?
+//!
+//! The original purpose of this crate to provide a library to parse and drive the crontab
+//! expression to find the next timestamp, while the execution part is scheduled outside.
+//!
+//! Note that a crontab library scheduling command can be built upon this crate.
+//!
+//! ### Why not support `?`, `%` and many other non-standard extensions?
+//!
+//! For `?`, it's a workaround to `*` and the famous cron bug. This crate implements the Vixie's
+//! cron behavior, so `?` is not necessary.
+//!
+//! For `%`, it's coupled with command execution. This crate doesn't support executing so `%` is
+//! meaningless.
+//!
+//! For `#` indicates comments, this crate doesn't support comments. It's too random for a library.
 
 use std::collections::BTreeSet;
 use std::collections::HashSet;
@@ -558,7 +659,7 @@ impl<'a> TryFrom<&'a str> for Crontab {
 /// A helper struct to construct a [`Timestamp`]. This is useful to avoid version lock-in to
 /// [`jiff`].
 #[derive(Debug, Copy, Clone)]
-pub struct MakeTimestamp(Timestamp);
+pub struct MakeTimestamp(pub Timestamp);
 
 impl From<Timestamp> for MakeTimestamp {
     fn from(timestamp: Timestamp) -> Self {
@@ -623,41 +724,25 @@ impl MakeTimestamp {
 }
 
 impl Crontab {
-    /// Create an iterator over next timestamps within `(start, end)`.
-    ///
-    /// If `end` is `None`, the iteration is infinite. Otherwise, the iteration stops when the
-    /// next timestamp is equal to or beyond the `end` timestamp.
+    /// Create an infinite iterator over next timestamps after `start`.
     ///
     /// # Errors
     ///
-    /// This returns an error if fail to make timestamp from the input of `start` or `end`.
+    /// This returns an error if fail to make timestamp from the input of `start`.
     ///
     /// For more usages, see [the top-level documentation][crate].
-    pub fn drive<T1, T2>(&self, start: T1, end: Option<T2>) -> Result<Driver, Error>
+    pub fn iter_after<T>(&self, start: T) -> Result<CronTimesIter, Error>
     where
-        T1: TryInto<MakeTimestamp>,
-        T1::Error: std::error::Error,
-        T2: TryInto<MakeTimestamp>,
-        T2::Error: std::error::Error,
+        T: TryInto<MakeTimestamp>,
+        T::Error: std::error::Error,
     {
         let start = start
             .try_into()
-            .map_err(error_with_context("failed to parse start timestamp"))?
-            .0;
+            .map_err(error_with_context("failed to parse start timestamp"))?;
 
-        let end = match end {
-            Some(end) => Some(
-                end.try_into()
-                    .map_err(error_with_context("failed to parse end timestamp"))?
-                    .0,
-            ),
-            None => None,
-        };
-
-        Ok(Driver {
+        Ok(CronTimesIter {
             crontab: self.clone(),
-            timestamp: start,
-            bound: end,
+            timestamp: start.0,
         })
     }
 
@@ -700,7 +785,12 @@ impl Crontab {
         }
     }
 
-    /// Returns whether this cron value matches the given time.
+    /// Returns whether this crontab matches the given timestamp.
+    ///
+    /// The function checks each cron field (minutes, hours, day of month, month) against the
+    /// provided `timestamp` to determine if it aligns with the crontab expression. Each field is
+    /// checked for a match, and all fields must match for the entire pattern to be considered a
+    /// match.
     ///
     /// ## Errors
     ///
@@ -717,6 +807,8 @@ impl Crontab {
     /// assert!(!crontab.matches("2020-10-20T01:30:00Z").unwrap());
     /// assert!(!crontab.matches("2020-10-20T00:30:00Z").unwrap());
     /// ```
+    ///
+    /// For more usages, see [the top-level documentation][crate].
     pub fn matches<T>(&self, timestamp: T) -> Result<bool, Error>
     where
         T: TryInto<MakeTimestamp>,
@@ -765,35 +857,27 @@ impl Crontab {
     }
 }
 
-/// Iterator over next timestamps. See [`Crontab::drive`] for more details.
+/// An iterator over the times matching the contained cron value. Created with
+/// [`Crontab::iter_after`].
 #[derive(Debug)]
-pub struct Driver {
+pub struct CronTimesIter {
     /// The crontab to find the next timestamp.
     crontab: Crontab,
     /// The current timestamp; mutable.
     timestamp: Timestamp,
-    /// When next timestamp is beyond this bound, stop iteration. [`None`] if never stop.
-    bound: Option<Timestamp>,
 }
 
-impl Iterator for Driver {
+impl Iterator for CronTimesIter {
     type Item = Result<Zoned, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let zoned = match self.crontab.find_next(self.timestamp) {
-            Ok(zoned) => zoned,
-            Err(err) => return Some(Err(err)),
-        };
-
-        if let Some(bound) = self.bound {
-            if zoned.timestamp() >= bound {
-                return None;
+        match self.crontab.find_next(self.timestamp) {
+            Ok(zoned) => {
+                self.timestamp = zoned.timestamp();
+                Some(Ok(zoned))
             }
+            Err(err) => Some(Err(err)),
         }
-
-        self.timestamp = zoned.timestamp();
-
-        Some(Ok(zoned))
     }
 }
 
@@ -826,115 +910,114 @@ mod tests {
     use insta::assert_snapshot;
     use jiff::Zoned;
 
+    use crate::CronTimesIter;
     use crate::Crontab;
-    use crate::Driver;
-    use crate::MakeTimestamp;
 
-    fn make_driver(crontab: &str, timestamp: &str) -> Driver {
+    fn make_iter(crontab: &str, timestamp: &str) -> CronTimesIter {
         let crontab = Crontab::from_str(crontab).unwrap();
-        crontab.drive(timestamp, None::<MakeTimestamp>).unwrap()
+        crontab.iter_after(timestamp).unwrap()
     }
 
-    fn drive(driver: &mut Driver) -> Zoned {
-        driver.next().unwrap().unwrap()
+    fn next(iter: &mut CronTimesIter) -> Zoned {
+        iter.next().unwrap().unwrap()
     }
 
     #[test]
     fn test_next_timestamp() {
-        let mut driver = make_driver("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
-        assert_snapshot!(drive(&mut driver), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
+        assert_snapshot!(next(&mut iter), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("2 4 * * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-09-12T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-13T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-14T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-15T04:02:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-16T04:02:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("2 4 * * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-09-12T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-13T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-14T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-15T04:02:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-16T04:02:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("0 0 31 * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-10-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-12-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-01-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-03-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-05-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-07-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-08-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-10-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-12-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-01-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-03-31T00:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-05-31T00:00:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("0 0 31 * * Asia/Shanghai", "2024-09-11T19:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-10-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-03-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-05-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-07-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-08-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-10-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-12-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-01-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-03-31T00:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-05-31T00:00:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("0 18 * * 1-5 Asia/Shanghai", "2024-09-11T19:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-09-12T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-13T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-16T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-17T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-18T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-09-19T18:00:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("0 18 * * 1-5 Asia/Shanghai", "2024-09-11T19:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-09-12T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-13T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-16T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-17T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-18T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-09-19T18:00:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("0 18 * * TUE#1 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-10-01T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-11-05T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-12-03T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-01-07T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-02-04T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-03-04T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-04-01T18:00:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("0 18 * * TUE#1 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-10-01T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-11-05T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-03T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-07T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-02-04T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-03-04T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-04-01T18:00:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("4 2 * * 1L Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-09-30T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-10-28T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-11-25T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-01-27T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-02-24T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-03-31T02:04:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-04-28T02:04:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("4 2 * * 1L Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-09-30T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-10-28T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-11-25T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-27T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-02-24T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-03-31T02:04:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-04-28T02:04:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("0 18 * * FRI#5 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-11-29T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-01-31T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-05-30T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-08-29T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-10-31T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-01-30T18:00:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-05-29T18:00:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("0 18 * * FRI#5 Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-11-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-31T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-05-30T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-08-29T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-10-31T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-01-30T18:00:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-05-29T18:00:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver(
+        let mut iter = make_iter(
             "3 11 L JAN-FEB,5 * Asia/Shanghai",
             "2024-09-24T00:08:35+08:00",
         );
-        assert_snapshot!(drive(&mut driver), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-02-28T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-05-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-01-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-02-28T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2026-05-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-02-28T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-05-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-02-28T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2026-05-31T11:03:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("3 11 17W,L * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-09-30T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-10-17T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-11-18T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-11-30T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-12-17T11:03:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("3 11 17W,L * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-09-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-10-17T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-11-18T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-11-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-17T11:03:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("3 11 1W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-10-01T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-11-01T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-12-02T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-01-01T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-02-03T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-03-03T11:03:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("3 11 1W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-10-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-11-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-02T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-01T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-02-03T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-03-03T11:03:00+08:00[Asia/Shanghai]");
 
-        let mut driver = make_driver("3 11 31W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
-        assert_snapshot!(drive(&mut driver), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2024-12-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-03-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-05-30T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-07-31T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-08-29T11:03:00+08:00[Asia/Shanghai]");
-        assert_snapshot!(drive(&mut driver), @"2025-10-31T11:03:00+08:00[Asia/Shanghai]");
+        let mut iter = make_iter("3 11 31W * * Asia/Shanghai", "2024-09-24T00:08:35+08:00");
+        assert_snapshot!(next(&mut iter), @"2024-10-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2024-12-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-01-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-03-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-05-30T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-07-31T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-08-29T11:03:00+08:00[Asia/Shanghai]");
+        assert_snapshot!(next(&mut iter), @"2025-10-31T11:03:00+08:00[Asia/Shanghai]");
     }
 }
