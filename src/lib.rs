@@ -20,6 +20,8 @@
 //!
 //!```rust
 //! let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
+//!
+//! // case 1. find next timestamp with timezone
 //! assert_eq!(
 //!     crontab
 //!         .find_next("2024-09-24T10:06:52+08:00")
@@ -28,10 +30,10 @@
 //!     "2024-09-25T04:02:00+08:00[Asia/Shanghai]"
 //! );
 //!
+//! // case 2. iter over next timestamps without upper bound
 //! let driver = crontab
 //!     .drive("2024-09-24T10:06:52+08:00", None::<cronexpr::MakeTimestamp>)
 //!     .unwrap();
-//!
 //! assert_eq!(
 //!     driver
 //!         .take(5)
@@ -47,6 +49,7 @@
 //!     ]
 //! );
 //!
+//! // case 3. iter over next timestamps with upper bound
 //! let driver = crontab
 //!     .drive(
 //!         "2024-09-24T10:06:52+08:00",
