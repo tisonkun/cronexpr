@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"* 4\").unwrap_err()"
+---
+failed to parse crontab expression:
+* 4
+    ^ malformed expression

@@ -75,54 +75,54 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
 
     let minutes_start = 0;
     let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
-    let minutes_part = &normalized[..minutes_end];
+    let minutes_part = &normalized.get(..minutes_end).unwrap_or("");
     let minutes = parse_minutes
         .parse(minutes_part)
         .map_err(|err| format_parse_error(&normalized, minutes_start, err))?;
 
     let hours_start = minutes_end + 1;
-    let hours_end = normalized[hours_start..]
+    let hours_end = normalized.get(hours_start..).unwrap_or("")
         .find(' ')
         .map(|i| i + hours_start)
         .unwrap_or_else(|| normalized.len());
-    let hours_part = &normalized[hours_start..hours_end];
+    let hours_part = &normalized.get(hours_start..hours_end).unwrap_or("");
     let hours = parse_hours
         .parse(hours_part)
         .map_err(|err| format_parse_error(&normalized, hours_start, err))?;
 
     let days_of_month_start = hours_end + 1;
-    let days_of_month_end = normalized[days_of_month_start..]
+    let days_of_month_end = normalized.get(days_of_month_start..).unwrap_or("")
         .find(' ')
         .map(|i| i + days_of_month_start)
         .unwrap_or_else(|| normalized.len());
-    let days_of_month_part = &normalized[days_of_month_start..days_of_month_end];
+    let days_of_month_part = &normalized.get(days_of_month_start..days_of_month_end).unwrap_or("");
     let days_of_month = parse_days_of_month
         .parse(days_of_month_part)
         .map_err(|err| format_parse_error(&normalized, days_of_month_start, err))?;
 
     let months_start = days_of_month_end + 1;
-    let months_end = normalized[months_start..]
+    let months_end = normalized.get(months_start..).unwrap_or("")
         .find(' ')
         .map(|i| i + months_start)
         .unwrap_or_else(|| normalized.len());
-    let months_part = &normalized[months_start..months_end];
+    let months_part = &normalized.get(months_start..months_end).unwrap_or("");
     let months = parse_months
         .parse(months_part)
         .map_err(|err| format_parse_error(&normalized, months_start, err))?;
 
     let days_of_week_start = months_end + 1;
-    let days_of_week_end = normalized[days_of_week_start..]
+    let days_of_week_end = normalized.get(days_of_week_start..).unwrap_or("")
         .find(' ')
         .map(|i| i + days_of_week_start)
         .unwrap_or_else(|| normalized.len());
-    let days_of_week_part = &normalized[days_of_week_start..days_of_week_end];
+    let days_of_week_part = &normalized.get(days_of_week_start..days_of_week_end).unwrap_or("");
     let days_of_week = parse_days_of_week
         .parse(days_of_week_part)
         .map_err(|err| format_parse_error(&normalized, days_of_week_start, err))?;
 
     let timezone_start = days_of_week_end + 1;
     let timezone_end = normalized.len();
-    let timezone_part = &normalized[timezone_start..timezone_end];
+    let timezone_part = &normalized.get(timezone_start..timezone_end).unwrap_or("");
     let timezone = parse_timezone
         .parse(timezone_part)
         .map_err(|err| format_parse_error(&normalized, timezone_start, err))?;
@@ -649,6 +649,12 @@ mod tests {
         assert_snapshot!(parse_crontab("104,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1,2,10 * * 104,2,10,100 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TTT Asia/Shanghai").unwrap_err());
+        assert_snapshot!(parse_crontab("").unwrap_err());
+        assert_snapshot!(parse_crontab("*").unwrap_err());
+        assert_snapshot!(parse_crontab("* 4").unwrap_err());
+        assert_snapshot!(parse_crontab("* 4 *").unwrap_err());
+        assert_snapshot!(parse_crontab("* 4 * *").unwrap_err());
+        assert_snapshot!(parse_crontab("* 4 * * *").unwrap_err());
     }
 
     #[test]
