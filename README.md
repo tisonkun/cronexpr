@@ -30,7 +30,7 @@ Here is a quick example that shows how to parse a cron expression and drive it w
 
 ```rust
 fn main() {
-    let crontab = cronexpr::parse_crontab("2 4 * * * Asia/ Shanghai").unwrap();
+    let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
 
     // case 1. find next timestamp with timezone
     assert_eq!(
@@ -38,7 +38,7 @@ fn main() {
             .find_next("2024-09-24T10:06:52+08:00")
             .unwrap()
             .to_string(),
-        "2024-09-25T04:02:00+08:00[Asia/ Shanghai]"
+        "2024-09-25T04:02:00+08:00[Asia/Shanghai]"
     );
 
     // case 2. iter over next timestamps without upper bound
@@ -52,11 +52,11 @@ fn main() {
             .collect::<Result<Vec<_>, cronexpr::Error>>()
             .unwrap(),
         vec![
-            "2024-09-25T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-26T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-27T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-28T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-29T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-25T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-26T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-27T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-28T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-29T04:02:00+08:00[Asia/Shanghai]",
         ]
     );
 
@@ -73,12 +73,12 @@ fn main() {
             .collect::<Result<Vec<_>, cronexpr::Error>>()
             .unwrap(),
         vec![
-            "2024-09-25T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-26T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-27T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-28T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-29T04:02:00+08:00[Asia/ Shanghai]",
-            "2024-09-30T04:02:00+08:00[Asia/ Shanghai]",
+            "2024-09-25T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-26T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-27T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-28T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-29T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-30T04:02:00+08:00[Asia/Shanghai]",
         ]
     );
 }
