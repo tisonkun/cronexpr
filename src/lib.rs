@@ -330,6 +330,22 @@
 //!
 //! If the Nth day of week does not exist in the month, the trigger won't fire in the month.
 //! This happens only when the month has less than five of the weekday.
+//!
+//! ## FAQ
+//!
+//! ### Why do you create this crate?
+//!
+//! ### Why does the crate require the timezone to be specified in the crontab expression?
+//!
+//! ### Why does [`Crontab::find_next`] and [`Crontab::drive`] only support exclusive bounds?
+//!
+//! ### Why not support aliases like `@hourly` and `@reboot`?
+//!
+//! ### Why not support seconds and/or years?
+//!
+//! ### Why not support passing command to execute?
+//!
+//! ### Why not support `?`, `%`, `H` and many other non-standard extensions?
 
 use std::collections::BTreeSet;
 use std::collections::HashSet;
