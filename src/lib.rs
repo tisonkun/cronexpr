@@ -41,8 +41,7 @@
 //! // case 2. iter over next timestamps without upper bound
 //! let iter = crontab.iter_after("2024-09-24T10:06:52+08:00").unwrap();
 //! assert_eq!(
-//!     iter
-//!         .take(5)
+//!     iter.take(5)
 //!         .map(|ts| ts.map(|ts| ts.to_string()))
 //!         .collect::<Result<Vec<_>, cronexpr::Error>>()
 //!         .unwrap(),
@@ -59,8 +58,7 @@
 //! let iter = crontab.iter_after("2024-09-24T10:06:52+08:00").unwrap();
 //! let end = MakeTimestamp::from_str("2024-10-01T00:00:00+08:00").unwrap();
 //! assert_eq!(
-//!     iter
-//!         .take_while(|ts| ts.as_ref().map(|ts| ts.timestamp() < end.0).unwrap_or(true))
+//!     iter.take_while(|ts| ts.as_ref().map(|ts| ts.timestamp() < end.0).unwrap_or(true))
 //!         .map(|ts| ts.map(|ts| ts.to_string()))
 //!         .collect::<Result<Vec<_>, cronexpr::Error>>()
 //!         .unwrap(),
@@ -333,6 +331,33 @@
 //! ## FAQ
 //!
 //! ### Why do you create this crate?
+//!
+//! The other way when I was implementing features like [`CREATE TASK` in Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-task),
+//! it comes to a requirement to support parsing and driving a crontab expression.
+//!
+//! Typically, the language interface looks like:
+//!
+//! ```schedule
+//! CREATE TASK do_retention
+//! SCHEDULE = '* * * * * Asia/Shanghai'
+//! AS
+//!     DELETE FROM t WHERE now() - ts > 'PT10s'::interval;
+//! ```
+//!
+//! The execution part of a traditional cron is the statement (`DELETE FROM ...`) here. Thus,
+//! what I need is a library to parse the crontab expression and find the next timestamp to execute
+//! the statement, without the need to execute the statement in the crontab library itself.
+//!
+//! There are several good candidates like [`croner`] and [`saffron`], but they are not suitable for
+//! my use case. Both of them do _not_ support defining timezone in the expression which is
+//! essential to my use case. Although `croner` support specific timezone later when matching, the
+//! user experience is quite different. Also, the syntax that `croner` or `saffron` supports is
+//! subtly different from my demand.
+//!
+//! Other libraries are unmaintained or immature to use.
+//!
+//! Last, most candidates using [`chrono`] to processing date times, while I'd prefer to extend the
+//! [`jiff`] ecosystem.
 //!
 //! ### Why does the crate require the timezone to be specified in the crontab expression?
 //!
