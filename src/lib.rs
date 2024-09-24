@@ -161,7 +161,7 @@
 //!
 //! ## List
 //!
-//! Commas (',') are used to separate items of a list. For example, using `MON,WED,FRI` in the 5th
+//! Commas (`,`) are used to separate items of a list. For example, using `MON,WED,FRI` in the 5th
 //! field (day of week) means Mondays, Wednesdays and Fridays.
 //!
 //! The list can contain any valid [single value](#single-value), [asterisks](#asterisks),
@@ -178,12 +178,12 @@
 //!
 //! ### Last day of month (`L`)
 //!
-//! The 'L' character is allowed for the day-of-month field. This character specifies the last day
+//! The `L` character is allowed for the day-of-month field. This character specifies the last day
 //! of the month.
 //!
-//! ### Nearest weekday ('1W', `15W`, etc.)
+//! ### Nearest weekday (`1W`, `15W`, etc.)
 //!
-//! The 'W' character is allowed for the day-of-month field. This character is used to specify the
+//! The `W` character is allowed for the day-of-month field. This character is used to specify the
 //! weekday (Monday-Friday) nearest the given day. As an example, if `15W` is specified as the value
 //! for the day-of-month field, the meaning is: "the nearest weekday to the 15th of the month." So,
 //! if the 15th is a Saturday, the trigger fires on Friday the 14th. If the 15th is a Sunday, the
@@ -198,12 +198,12 @@
 //!
 //! ### Last day of week (`5L`)
 //!
-//! The 'L' character is allowed for the day-of-week field. This character specifies constructs such
+//! The `L` character is allowed for the day-of-week field. This character specifies constructs such
 //! as "the last Friday" (`5L`) of a given month.
 //!
 //! ### Nth day of week (`5#3`)
 //!
-//! The '#' character is allowed for the day-of-week field, and must be followed by a number between
+//! The `#` character is allowed for the day-of-week field, and must be followed by a number between
 //! one and five. It allows specifying constructs such as "the second Friday" of a given month. For
 //! example, entering `5#3` in the day-of-week field corresponds to the third Friday of every month.
 //!
@@ -359,35 +359,34 @@ pub struct Crontab {
 enum PossibleValue {
     /// Literally match the value.
     ///
-    /// For example, a possible literal of minute '15' matches when the minute is '15'.
+    /// For example, a possible literal of minute `15` matches when the minute is 15.
     Literal(u8),
-    /// Parsed from '<day>W' in day-of-month field.
+    /// Parsed from `<day>W` in day-of-month field.
     ///
-    /// The 'W' character is allowed for the day-of-month field. This character is used to specify
+    /// The `W` character is allowed for the day-of-month field. This character is used to specify
     /// the weekday (Monday-Friday) nearest the given day. As an example, if "15W" is specified as
     /// the value for the day-of-month field, the meaning is: "the nearest weekday to the 15th of
     /// the month." So, if the 15th is a Saturday, the trigger fires on Friday the 14th. If the
     /// 15th is a Sunday, the trigger fires on Monday the 16th. If the 15th is a Tuesday, then it
     /// fires on Tuesday the 15th. However, if "1W" is specified as the value for day-of-month, and
     /// the 1st is a Saturday, the trigger fires on Monday the 3rd, as it does not 'jump' over the
-    /// boundary of a month's days. The 'W' character can be specified only when the day-of-month
-    /// is a single day, not a range or list of days.
+    /// boundary of a month's days.
     NearestWeekday(u8),
     /// Parsed from '<day>L' in day-of-month field.
     ///
     /// 'L' stands for "last". When used in the day-of-month field, it specifies the last day of
     /// the month.
     LastDayOfMonth,
-    /// Parsed from '<weekday>L' in day-of-week field.
+    /// Parsed from `<weekday>L` in day-of-week field.
     ///
-    /// 'L' stands for "last". When used in the day-of-week field, it allows specifying constructs
-    /// such as "the last Friday" ("5L") of a given month.
+    /// `L` stands for "last". When used in the day-of-week field, it allows specifying constructs
+    /// such as "the last Friday" (`5L`) of a given month.
     LastDayOfWeek(Weekday),
-    /// Parsed from '<weekday>#<nth>' in day-of-week field.
+    /// Parsed from `<weekday>#<nth>` in day-of-week field.
     ///
-    /// '#' is allowed for the day-of-week field, and must be followed by a number between one and
+    /// `#` is allowed for the day-of-week field, and must be followed by a number between one and
     /// five. It allows specifying constructs such as "the second Friday" of a given month. For
-    /// example, entering "5#3" in the day-of-week field corresponds to the third Friday of every
+    /// example, entering `5#3` in the day-of-week field corresponds to the third Friday of every
     /// month.
     NthDayOfWeek(u8, Weekday),
 }
