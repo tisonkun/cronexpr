@@ -356,20 +356,81 @@
 //!
 //! Other libraries are unmaintained or immature to use.
 //!
-//! Last, most candidates using [`chrono`] to processing date times, while I'd prefer to extend the
+//! Last, most candidates using [`chrono`] to processing datetime, while I'd prefer to extend the
 //! [`jiff`] ecosystem.
 //!
 //! ### Why does the crate require the timezone to be specified in the crontab expression?
 //!
+//! Mainly two reasons:
+//!
+//! 1. Without timezone information, you can _not_ perform daylight saving time (DST) arithmetic,
+//!    and the result of the next timestamp may be incorrect.
+//! 2. When define the crontab expression, people usually have a specific timezone in mind. It's
+//!    more natural to specify the timezone in the expression, instead of having UTC as an implicit
+//!    and forcing the user to convert the datetime to UTC.
+//!
+//! If there is a third reason, that is, it's how Snowflake does.
+//!
 //! ### Why does [`Crontab::find_next`] and [`Crontab::iter_after`] only support exclusive bounds?
+//!
+//! Crontab jobs are schedule at most every minute. Bike-shedding the inclusive bounds is not
+//! practical.
+//!
+//! If you'd like to try to match the boundary anyway, you can test it with [`Crontab::matches`]
+//! before calling [`Crontab::find_next`] or [`Crontab::iter_after`].
 //!
 //! ### Why not support aliases like `@hourly` and `@reboot`?
 //!
+//! They are too handy to support and are totally different syntax in parsing.
+//!
+//! `@reboot` is meaningless since this crate only parse and drive a crontab expression, rather
+//! than execute the command. Other aliases should be easily converted to the syntax this crate
+//! supports.
+//!
 //! ### Why not support seconds and/or years?
+//!
+//! Crontab jobs are typically _not_ frequent tasks that run in seconds. Especially for scheduling
+//! tasks in a distributed database, trying to specify a task in seconds is impractical.
+//!
+//! I don't actually schedule the task exactly at the timestamp, but record the previous timestamp,
+//! and then schedule the task when `now` is greater than or equal to the next timestamp.
+//!
+//! For years, it's not a common use case for crontab jobs. This crate can already specify "every
+//! year".
+//!
+//! ```rust
+//! fn next(iter: &mut cronexpr::CronTimesIter) -> String {
+//!     iter.next().unwrap().unwrap().to_string()
+//! }
+//!
+//! // every year at 00:00:00 on January 1st
+//! let crontab = cronexpr::parse_crontab("0 0 1 JAN * UTC").unwrap();
+//! let mut iter = crontab.iter_after("2024-09-24T13:06:52Z").unwrap();
+//!
+//! assert_eq!(next(&mut iter), "2025-01-01T00:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter), "2026-01-01T00:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter), "2027-01-01T00:00:00+00:00[UTC]");
+//! assert_eq!(next(&mut iter), "2028-01-01T00:00:00+00:00[UTC]");
+//! ```
+//!
+//! If you need to match certain years, please do it externally.
 //!
 //! ### Why not support passing command to execute?
 //!
-//! ### Why not support `?`, `%`, `H` and many other non-standard extensions?
+//! The original purpose of this crate to provide a library to parse and drive the crontab
+//! expression to find the next timestamp, while the execution part is scheduled outside.
+//!
+//! Note that a crontab library scheduling command can be built upon this crate.
+//!
+//! ### Why not support `?`, `%` and many other non-standard extensions?
+//!
+//! For `?`, it's a workaround to `*` and the famous cron bug. This crate implements the Vixie's
+//! cron behavior, so `?` is not necessary.
+//!
+//! For `%`, it's coupled with command execution. This crate doesn't support executing so `%` is
+//! meaningless.
+//!
+//! For `#` indicates comments, this crate doesn't support comments. It's too random for a library.
 
 use std::collections::BTreeSet;
 use std::collections::HashSet;
@@ -851,7 +912,6 @@ mod tests {
 
     use crate::CronTimesIter;
     use crate::Crontab;
-    use crate::MakeTimestamp;
 
     fn make_iter(crontab: &str, timestamp: &str) -> CronTimesIter {
         let crontab = Crontab::from_str(crontab).unwrap();
