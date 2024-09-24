@@ -152,7 +152,7 @@
 //! This crate requires the step value to be in the range of the field and not zero.
 //!
 //! The range to be stepped can be any valid [single value](#single-value), an
-//! [asterisks](#asterisks), or [range](#range).
+//! [asterisk](#asterisk), or [range](#range).
 //!
 //! When it's a single value `v`, it's expanded to a range `v-<field range end>`. For example,
 //! `15/XX` is the same as a Vixie's cron schedule of `15-59/10` in the minutes section. Similarly,
@@ -167,7 +167,7 @@
 //! Commas (`,`) are used to separate items of a list. For example, using `MON,WED,FRI` in the 5th
 //! field (day of week) means Mondays, Wednesdays and Fridays.
 //!
-//! The list can contain any valid [single value](#single-value), [asterisks](#asterisks),
+//! The list can contain any valid [single value](#single-value), [asterisk](#asterisk),
 //! [ranges](#range), or [steps](#step). For days of week and days of month, it can also contain
 //! extra syntax, read their dedicated sections below.
 //!
