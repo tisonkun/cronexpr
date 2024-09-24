@@ -34,6 +34,7 @@ mod parser;
 pub use parser::normalize_crontab;
 pub use parser::parse_crontab;
 
+/// An error that can occur in this crate.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{0}")]
 pub struct Error(String);
