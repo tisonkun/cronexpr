@@ -76,7 +76,7 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
             Ok(input[start..]
                 .find(' ')
                 .map(|end| start + end)
-                .unwrap_or_else(|| input.len()))
+                .unwrap_or(input.len()))
         } else {
             Err(format_incomplete_error(input, next_part))
         }
@@ -88,7 +88,7 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     }
 
     let minutes_start = 0;
-    let minutes_end = normalized.find(' ').unwrap_or_else(|| normalized.len());
+    let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
     let minutes = parse_minutes
         .parse(&normalized[..minutes_end])
         .map_err(|err| format_parse_error(&normalized, minutes_start, err))?;
