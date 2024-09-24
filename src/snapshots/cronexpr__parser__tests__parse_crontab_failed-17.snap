@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+expression: "parse_crontab(\"0 0\").unwrap_err()"
+---
+malformed expression:
+0 0
+   ^ missing days of month
