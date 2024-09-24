@@ -137,7 +137,7 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
 }
 
 fn format_incomplete_error(input: &str, next_part: &str) -> Error {
-    let context = "malformed expression";
+    let context = "failed to parse crontab expression";
     let indent = " ".repeat(input.len());
     Error(format!(
         "{context}:\n{input}\n{indent}^ missing {next_part}"

@@ -2,6 +2,6 @@
 source: src/parser.rs
 expression: "parse_crontab(\"0 0 1 1 5 \").unwrap_err()"
 ---
-malformed expression:
+failed to parse crontab expression:
 0 0 1 1 5
          ^ missing timezone
