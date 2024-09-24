@@ -73,55 +73,54 @@ pub fn normalize_crontab(input: &str) -> String {
 pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     let normalized = normalize_crontab(input);
 
+    fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
+        if start < input.len() {
+            Ok(input[start..]
+                .find(' ')
+                .map(|end| start + end)
+                .unwrap_or_else(|| input.len()))
+        } else {
+            Err(format_incomplete_error(input, next_part))
+        }
+    }
+
     let minutes_start = 0;
-    let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
-    let minutes_part = &normalized[..minutes_end];
+    let minutes_end = find_next_part(&normalized, minutes_start, "minutes")?;
     let minutes = parse_minutes
-        .parse(minutes_part)
+        .parse(&normalized[..minutes_end])
         .map_err(|err| format_parse_error(&normalized, minutes_start, err))?;
 
     let hours_start = minutes_end + 1;
-    let hours_end = normalized[hours_start..]
-        .find(' ')
-        .map(|i| i + hours_start)
-        .unwrap_or_else(|| normalized.len());
-    let hours_part = &normalized[hours_start..hours_end];
+    let hours_end = find_next_part(&normalized, hours_start, "hours")?;
     let hours = parse_hours
-        .parse(hours_part)
+        .parse(&normalized[hours_start..hours_end])
         .map_err(|err| format_parse_error(&normalized, hours_start, err))?;
 
     let days_of_month_start = hours_end + 1;
-    let days_of_month_end = normalized[days_of_month_start..]
-        .find(' ')
-        .map(|i| i + days_of_month_start)
-        .unwrap_or_else(|| normalized.len());
-    let days_of_month_part = &normalized[days_of_month_start..days_of_month_end];
+    let days_of_month_end = find_next_part(&normalized, days_of_month_start, "days of month")?;
     let days_of_month = parse_days_of_month
-        .parse(days_of_month_part)
+        .parse(&normalized[days_of_month_start..days_of_month_end])
         .map_err(|err| format_parse_error(&normalized, days_of_month_start, err))?;
 
     let months_start = days_of_month_end + 1;
-    let months_end = normalized[months_start..]
-        .find(' ')
-        .map(|i| i + months_start)
-        .unwrap_or_else(|| normalized.len());
+    let months_end = find_next_part(&normalized, months_start, "months")?;
     let months_part = &normalized[months_start..months_end];
     let months = parse_months
         .parse(months_part)
         .map_err(|err| format_parse_error(&normalized, months_start, err))?;
 
     let days_of_week_start = months_end + 1;
-    let days_of_week_end = normalized[days_of_week_start..]
-        .find(' ')
-        .map(|i| i + days_of_week_start)
-        .unwrap_or_else(|| normalized.len());
-    let days_of_week_part = &normalized[days_of_week_start..days_of_week_end];
+    let days_of_week_end = find_next_part(&normalized, days_of_week_start, "days of week")?;
     let days_of_week = parse_days_of_week
-        .parse(days_of_week_part)
+        .parse(&normalized[days_of_week_start..days_of_week_end])
         .map_err(|err| format_parse_error(&normalized, days_of_week_start, err))?;
 
     let timezone_start = days_of_week_end + 1;
-    let timezone_end = normalized.len();
+    let timezone_end = if timezone_start < normalized.len() {
+        normalized.len()
+    } else {
+        return Err(format_incomplete_error(&normalized, "timezone"));
+    };
     let timezone_part = &normalized[timezone_start..timezone_end];
     let timezone = parse_timezone
         .parse(timezone_part)
@@ -135,6 +134,14 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
         days_of_week,
         timezone,
     })
+}
+
+fn format_incomplete_error(input: &str, next_part: &str) -> Error {
+    let context = "malformed expression";
+    let indent = " ".repeat(input.len());
+    Error(format!(
+        "{context}:\n{input}\n{indent}^ missing {next_part}"
+    ))
 }
 
 fn format_parse_error(
@@ -649,6 +656,17 @@ mod tests {
         assert_snapshot!(parse_crontab("104,2,10,100 1 1 1 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1,2,10 * * 104,2,10,100 * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TTT Asia/Shanghai").unwrap_err());
+
+        // check incomplete and edge right; all input are first normalized so no need for extra
+        // spaces
+        assert_snapshot!(parse_crontab("0").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1 5").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1 5 ").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1 5 Z").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1 5 Z Z").unwrap_err());
     }
 
     #[test]
