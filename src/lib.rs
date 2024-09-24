@@ -86,15 +86,22 @@
 //!
 //! ```markdown
 //! *    *    *    *    *    <timezone>
-//! ┬    ┬    ┬    ┬    ┬    ----┬----
+//! ┬    ┬    ┬    ┬    ┬    ────┬────
 //! │    │    │    │    │        |
-//! │    │    │    │    │        └──── timezone (Asia/Shanghai, UTC, etc.)
-//! │    │    │    │    └───────────── day of week (0-7, SUN-SAT, 1L-7L) (0 or 7 is Sunday)
-//! │    │    │    └────────────────── month (1-12, JAN-DEC)
-//! │    │    └─────────────────────── day of month (1-31, L, 15W)
-//! │    └──────────────────────────── hour (0-23)
-//! └───────────────────────────────── minute (0-59)
+//! │    │    │    │    │        └──── timezone     UTC, Asia/Shanghai, and so on
+//! │    │    │    │    └───────────── day of week  0-7, SUN-SAT (0 or 7 is Sunday)
+//! │    │    │    └────────────────── month        1-12, JAN-DEC
+//! │    │    └─────────────────────── day of month 1-31
+//! │    └──────────────────────────── hour         0-23
+//! └───────────────────────────────── minute       0-59
 //! ```
+//!
+//! This crate also supports the following non-standard extensions:
+//!
+//! * [Last day of month (`L`)](#last-day-of-month-l)
+//! * [Nearest weekday (`1W`, `15W`, etc.)](#nearest-weekday-1w-15w-etc)
+//! * [Last day of week (`5L`)](#last-day-of-week-5l)
+//! * [Nth day of week (`5#3`)](#nth-day-of-week-53)
 //!
 //! ### Timezone
 //!
@@ -151,8 +158,8 @@
 //!
 //! This crate requires the step value to be in the range of the field and not zero.
 //!
-//! The range to be stepped can be any valid [single value](#single-value), an
-//! [asterisk](#asterisk), or [range](#range).
+//! The range to be stepped can be any valid [single value](#single-value), [asterisk](#asterisk),
+//! or [range](#range).
 //!
 //! When it's a single value `v`, it's expanded to a range `v-<field range end>`. For example,
 //! `15/XX` is the same as a Vixie's cron schedule of `15-59/10` in the minutes section. Similarly,
@@ -168,7 +175,7 @@
 //! field (day of week) means Mondays, Wednesdays and Fridays.
 //!
 //! The list can contain any valid [single value](#single-value), [asterisk](#asterisk),
-//! [ranges](#range), or [steps](#step). For days of week and days of month, it can also contain
+//! [range](#range), or [step](#step). For days of week and days of month, it can also contain
 //! extra syntax, read their dedicated sections below.
 //!
 //! List items are parsed delimited by commas. This takes the highest precedence in the parsing.
@@ -548,9 +555,8 @@ impl<'a> TryFrom<&'a str> for Crontab {
     }
 }
 
-/// A helper struct to construct a [`Timestamp`].
-///
-/// This is useful to avoid version lock-in to [`jiff`].
+/// A helper struct to construct a [`Timestamp`]. This is useful to avoid version lock-in to
+/// [`jiff`].
 #[derive(Debug, Copy, Clone)]
 pub struct MakeTimestamp(Timestamp);
 
@@ -724,7 +730,7 @@ impl Crontab {
     }
 }
 
-/// Iterator over next timestamps. See [Crontab::drive] for more details.
+/// Iterator over next timestamps. See [`Crontab::drive`] for more details.
 #[derive(Debug)]
 pub struct Driver {
     /// The crontab to find the next timestamp.
