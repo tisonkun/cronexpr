@@ -32,8 +32,8 @@ use winnow::Parser;
 
 use crate::Crontab;
 use crate::Error;
-use crate::PossibleDaysOfMonth;
-use crate::PossibleDaysOfWeek;
+use crate::ParsedDaysOfMonth;
+use crate::ParsedDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
 
@@ -59,7 +59,8 @@ pub fn normalize_crontab(input: &str) -> String {
         .join(" ")
 }
 
-/// Parse a crontab expression to [`Crontab`].
+/// Parse a crontab expression to [`Crontab`]. See [the top-level documentation][crate] for the full
+/// syntax definitions.
 ///
 /// ```rust
 /// use cronexpr::parse_crontab;
@@ -71,8 +72,6 @@ pub fn normalize_crontab(input: &str) -> String {
 /// ```
 pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     let normalized = normalize_crontab(input);
-
-    log::debug!("normalized input {input:?} to {normalized:?}");
 
     let minutes_start = 0;
     let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
@@ -221,7 +220,8 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
     Ok(PossibleLiterals { values: literals })
 }
 
-fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
+fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
+    let start_with_asterisk = input.starts_with('*');
     let range = || 0..=7;
 
     fn norm_sunday(n: u8) -> u8 {
@@ -258,8 +258,12 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
         alt((
             (parse_single_day_of_week(range), "L")
                 .map(|(n, _)| PossibleValue::LastDayOfWeek(make_weekday(n))),
-            (parse_single_day_of_week(range), "#", dec_uint)
-                .map(|(n, _, nth): (u8, _, u8)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
+            (
+                parse_single_day_of_week(range),
+                "#",
+                parse_single_number(|| 1..=5),
+            )
+                .map(|(n, _, nth)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
             parse_single_day_of_week(range).map(|n| PossibleValue::Literal(norm_sunday(n))),
         ))
     }
@@ -304,14 +308,16 @@ fn parse_days_of_week(input: &mut &str) -> PResult<PossibleDaysOfWeek> {
             _ => unreachable!("unexpected value: {value:?}"),
         }
     }
-    Ok(PossibleDaysOfWeek {
+    Ok(ParsedDaysOfWeek {
         literals,
         last_days_of_week,
         nth_days_of_week,
+        start_with_asterisk,
     })
 }
 
-fn parse_days_of_month(input: &mut &str) -> PResult<PossibleDaysOfMonth> {
+fn parse_days_of_month(input: &mut &str) -> PResult<ParsedDaysOfMonth> {
+    let start_with_asterisk = input.starts_with('*');
     let range = || 1..=31;
 
     fn parse_single_day_of_month_ext<'a>(
@@ -361,10 +367,11 @@ fn parse_days_of_month(input: &mut &str) -> PResult<PossibleDaysOfMonth> {
             _ => unreachable!("unexpected value: {value:?}"),
         }
     }
-    Ok(PossibleDaysOfMonth {
+    Ok(ParsedDaysOfMonth {
         literals,
         last_day_of_month,
         nearest_weekdays,
+        start_with_asterisk,
     })
 }
 
@@ -607,12 +614,10 @@ mod tests {
     use insta::assert_snapshot;
 
     use super::*;
-    use crate::setup_logging;
 
     #[test]
     fn test_parse_crontab_success() {
-        setup_logging();
-
+        // snapshot files are ordered; for new cases, please add to the end
         assert_debug_snapshot!(parse_crontab("* * * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap());
@@ -628,8 +633,7 @@ mod tests {
 
     #[test]
     fn test_parse_crontab_failed() {
-        setup_logging();
-
+        // snapshot files are ordered; for new cases, please add to the end
         assert_snapshot!(parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("* * * * * Unknown/Timezone").unwrap_err());
         assert_snapshot!(parse_crontab("* 5-4 * * * Asia/Shanghai").unwrap_err());
@@ -650,7 +654,6 @@ mod tests {
     #[test]
     fn test_crontab_guru_examples() {
         // crontab.guru examples: https://crontab.guru/examples.html
-
         assert_debug_snapshot!(parse_crontab("* * * * * UTC").unwrap());
         assert_debug_snapshot!(parse_crontab("*/2 * * * * UTC").unwrap());
         assert_debug_snapshot!(parse_crontab("1-59/2 * * * * UTC").unwrap());

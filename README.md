@@ -18,34 +18,92 @@
 
 ## Overview
 
-This library provides functionalities to calculate the next timestamp matching a given crontab pattern.
+A library to parse and drive the crontab expression.
 
-## Usage
+## Documentation
 
-```shell
-cargo add cronexpr
-```
+* [API documentation on docs.rs](https://docs.rs/cronexpr)
+
+## Example
+
+Here is a quick example that shows how to parse a cron expression and drive it with a timestamp:
 
 ```rust
 fn main() {
-    use std::str::FromStr;
+    let crontab = cronexpr::parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
 
-    // with jiff timestamp
-    let timestamp = jiff::Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
-    let crontab = cronexpr::Crontab::from_str("0 0 1 1 * Asia/ Shanghai").unwrap();
-    let driver = crontab.drive_with_timestamp(timestamp);
-    assert_eq!(driver.find_next_timestamp().unwrap().as_millisecond(), 1735660800000);
+    // case 1. find next timestamp with timezone
+    assert_eq!(
+        crontab
+            .find_next("2024-09-24T10:06:52+08:00")
+            .unwrap()
+            .to_string(),
+        "2024-09-25T04:02:00+08:00[Asia/Shanghai]"
+    );
 
-    // for compatibility, bridge by timestamp milliseconds (crontab support at most second level so it's fine)
-    let crontab: cronexpr::Crontab = "2 4 * * * Asia/ Shanghai".parse().unwrap();
-    let driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
-    assert_eq!(driver.find_next_timestamp_millis().unwrap(), 1704052920000);
+    // case 2. iter over next timestamps without upper bound
+    let driver = crontab
+        .drive("2024-09-24T10:06:52+08:00", None::<cronexpr::MakeTimestamp>)
+        .unwrap();
+    assert_eq!(
+        driver
+            .take(5)
+            .map(|ts| ts.map(|ts| ts.to_string()))
+            .collect::<Result<Vec<_>, cronexpr::Error>>()
+            .unwrap(),
+        vec![
+            "2024-09-25T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-26T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-27T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-28T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-29T04:02:00+08:00[Asia/Shanghai]",
+        ]
+    );
 
-    // can also be used as an iterator
-    let crontab: cronexpr::Crontab = "2 4 * * * Asia/ Shanghai".parse().unwrap();
-    let mut driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
-    assert_eq!(driver.next_timestamp_millis().unwrap(), 1704052920000);
-    assert_eq!(driver.next_timestamp_millis().unwrap(), 1704139320000);
-    assert_eq!(driver.next_timestamp_millis().unwrap(), 1704225720000);
+    // case 3. iter over next timestamps with upper bound
+    let driver = crontab
+        .drive(
+            "2024-09-24T10:06:52+08:00",
+            Some("2024-10-01T00:00:00+08:00"),
+        )
+        .unwrap();
+    assert_eq!(
+        driver
+            .map(|ts| ts.map(|ts| ts.to_string()))
+            .collect::<Result<Vec<_>, cronexpr::Error>>()
+            .unwrap(),
+        vec![
+            "2024-09-25T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-26T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-27T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-28T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-29T04:02:00+08:00[Asia/Shanghai]",
+            "2024-09-30T04:02:00+08:00[Asia/Shanghai]",
+        ]
+    );
 }
 ```
+
+## Usage
+
+`cronexpr` is [on crates.io](https://crates.io/crates/cronexpr) and can be used by adding `cronexpr` to your dependencies in your project's `Cargo.toml`. Or more simply, just run `cargo add cronexpr`.
+
+## Dependencies
+
+`cronexpr` depends on:
+
+* [thiserror](https://docs.rs/thiserror/) to define our `Error` type.
+* [jiff](https://docs.rs/jiff/) for all the datetime things. This is almost internal, except:
+  * the timestamp returned is a `jiff::Zoned`, although you can treat it as something defined by `cronexpr`.
+  * the input type `MakeTimestamp` is a wrapper of `jiff::Timestamp`, but it's defined by `cronexpr` and enables you create a Timestamp from a string, milliseconds, nanoseconds, and more, without directly depend on `jiff::Timestamp` (you can still depend on it if you'd like).
+* [winnow](https://docs.rs/winnow/) for parsing the crontab expression. This is fully internal: you don't need to understand it.
+
+## Minimum Rust version policy
+
+This crate is built against the latest stable release, and its minimum supported rustc version is 1.75.0.
+
+The policy is that the minimum Rust version required to use this crate can be increased in minor version updates. For example, if cronexpr 1.0 requires Rust 1.20.0, then cronexpr 1.0.z for all values of z will also require Rust 1.20.0 or newer. However, cronexpr 1.y for y > 0 may require a newer minimum version of Rust.
+
+## License
+
+This project is licensed under [Apache License, Version 2.0](LICENSE).
