@@ -32,17 +32,17 @@ fn main() {
 
     // with jiff timestamp
     let timestamp = jiff::Timestamp::from_str("2024-01-01T00:00:00+08:00").unwrap();
-    let crontab = cronexpr::Crontab::from_str("0 0 1 1 * Asia/ Shanghai").unwrap();
+    let crontab = cronexpr::Crontab::from_str("0 0 1 1 * Asia/Shanghai").unwrap();
     let driver = crontab.drive_with_timestamp(timestamp);
     assert_eq!(driver.find_next_timestamp().unwrap().as_millisecond(), 1735660800000);
 
     // for compatibility, bridge by timestamp milliseconds (crontab support at most second level so it's fine)
-    let crontab: cronexpr::Crontab = "2 4 * * * Asia/ Shanghai".parse().unwrap();
+    let crontab: cronexpr::Crontab = "2 4 * * * Asia/Shanghai".parse().unwrap();
     let driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
     assert_eq!(driver.find_next_timestamp_millis().unwrap(), 1704052920000);
 
     // can also be used as an iterator
-    let crontab: cronexpr::Crontab = "2 4 * * * Asia/ Shanghai".parse().unwrap();
+    let crontab: cronexpr::Crontab = "2 4 * * * Asia/Shanghai".parse().unwrap();
     let mut driver = crontab.drive_with_timestamp_millis(1704038400000).unwrap();
     assert_eq!(driver.next_timestamp_millis().unwrap(), 1704052920000);
     assert_eq!(driver.next_timestamp_millis().unwrap(), 1704139320000);
