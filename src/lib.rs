@@ -241,43 +241,120 @@ impl<'a> TryFrom<&'a str> for Crontab {
     }
 }
 
-impl Crontab {
-    /// The same as [Crontab::drive] but throws an error when converting to timestamp fails.
-    pub fn try_drive<T1, T2>(&self, start: T1, end: Option<T2>) -> Result<Driver, Error>
-    where
-        T1: TryInto<Timestamp>,
-        T1::Error: std::error::Error,
-        T2: TryInto<Timestamp>,
-        T2::Error: std::error::Error,
-    {
-        let start = start
-            .try_into()
-            .map_err(error_with_context("failed to parse start timestamp"))?;
+/// A helper struct to construct a [`Timestamp`].
+///
+/// This is useful to avoid version lock-in to [`jiff`].
+#[derive(Debug, Copy, Clone)]
+pub struct MakeTimestamp(Timestamp);
 
-        let end = match end {
-            Some(end) => Some(
-                end.try_into()
-                    .map_err(error_with_context("failed to parse end timestamp"))?,
-            ),
-            None => None,
-        };
+impl From<Timestamp> for MakeTimestamp {
+    fn from(timestamp: Timestamp) -> Self {
+        MakeTimestamp(timestamp)
+    }
+}
 
-        Ok(self.drive(start, end))
+impl FromStr for MakeTimestamp {
+    type Err = Error;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        Timestamp::from_str(input)
+            .map(MakeTimestamp)
+            .map_err(error_with_context("failed to parse timestamp"))
+    }
+}
+
+impl<'a> TryFrom<&'a str> for MakeTimestamp {
+    type Error = Error;
+
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+        FromStr::from_str(input)
+    }
+}
+
+impl MakeTimestamp {
+    /// Creates a new instant in time from the number of seconds elapsed since the Unix epoch.
+    ///
+    /// See [`Timestamp::from_second`] for more details.
+    pub fn from_second(second: i64) -> Result<Self, Error> {
+        Timestamp::from_second(second)
+            .map(MakeTimestamp)
+            .map_err(error_with_context("failed to make timestamp"))
     }
 
+    /// Creates a new instant in time from the number of milliseconds elapsed since the Unix epoch.
+    ///
+    /// See [`Timestamp::from_millisecond`] for more details.
+    pub fn from_millisecond(millisecond: i64) -> Result<Self, Error> {
+        Timestamp::from_millisecond(millisecond)
+            .map(MakeTimestamp)
+            .map_err(error_with_context("failed to make timestamp"))
+    }
+
+    /// Creates a new instant in time from the number of microseconds elapsed since the Unix epoch.
+    ///
+    /// See [`Timestamp::from_microsecond`] for more details.
+    pub fn from_microsecond(microsecond: i64) -> Result<Self, Error> {
+        Timestamp::from_microsecond(microsecond)
+            .map(MakeTimestamp)
+            .map_err(error_with_context("failed to make timestamp"))
+    }
+
+    /// Creates a new instant in time from the number of nanoseconds elapsed since the Unix epoch.
+    ///
+    /// See [`Timestamp::from_nanosecond`] for more details.
+    pub fn from_nanosecond(nanosecond: i128) -> Result<Self, Error> {
+        Timestamp::from_nanosecond(nanosecond)
+            .map(MakeTimestamp)
+            .map_err(error_with_context("failed to make timestamp"))
+    }
+}
+
+impl Crontab {
     /// Create an iterator over next timestamps within `(start, end)`.
     ///
     /// If `end` is `None`, the iteration is infinite. Otherwise, the iteration stops when the
     /// next timestamp is equal to or beyond the `end` timestamp.
-    pub fn drive(&self, start: Timestamp, end: Option<Timestamp>) -> Driver {
-        Driver {
+    ///
+    /// # Errors
+    ///
+    /// This returns an error if fail to make timestamp from the input of `start` or `end`.
+    ///
+    /// For more usages, see [the top-level documentation][crate].
+    pub fn drive<T1, T2>(&self, start: T1, end: Option<T2>) -> Result<Driver, Error>
+    where
+        T1: TryInto<MakeTimestamp>,
+        T1::Error: std::error::Error,
+        T2: TryInto<MakeTimestamp>,
+        T2::Error: std::error::Error,
+    {
+        let start = start
+            .try_into()
+            .map_err(error_with_context("failed to parse start timestamp"))?
+            .0;
+
+        let end = match end {
+            Some(end) => Some(
+                end.try_into()
+                    .map_err(error_with_context("failed to parse end timestamp"))?
+                    .0,
+            ),
+            None => None,
+        };
+
+        Ok(Driver {
             crontab: self.clone(),
             timestamp: start,
             bound: end,
-        }
+        })
     }
 
     /// Find the next timestamp after the given timestamp.
+    ///
+    /// # Errors
+    ///
+    /// This returns an error if fail to make timestamp from the input `timestamp`.
+    ///
+    /// For more usages, see [the top-level documentation][crate].
     pub fn find_next<T>(&self, timestamp: T) -> Result<Zoned, Error>
     where
         T: TryInto<Timestamp>,
@@ -421,17 +498,16 @@ mod tests {
     use std::str::FromStr;
 
     use insta::assert_snapshot;
-    use jiff::Timestamp;
     use jiff::Zoned;
 
     use crate::setup_logging;
     use crate::Crontab;
     use crate::Driver;
+    use crate::MakeTimestamp;
 
     fn make_driver(crontab: &str, timestamp: &str) -> Driver {
-        let timestamp = Timestamp::from_str(timestamp).unwrap();
         let crontab = Crontab::from_str(crontab).unwrap();
-        crontab.drive(timestamp, None)
+        crontab.drive(timestamp, None::<MakeTimestamp>).unwrap()
     }
 
     fn drive(driver: &mut Driver) -> Zoned {
