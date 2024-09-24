@@ -72,8 +72,6 @@ pub fn normalize_crontab(input: &str) -> String {
 pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
     let normalized = normalize_crontab(input);
 
-    log::debug!("normalized input {input:?} to {normalized:?}");
-
     let minutes_start = 0;
     let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
     let minutes_part = &normalized[..minutes_end];
@@ -615,12 +613,10 @@ mod tests {
     use insta::assert_snapshot;
 
     use super::*;
-    use crate::setup_logging;
 
     #[test]
     fn test_parse_crontab_success() {
-        setup_logging();
-
+        // snapshot files are ordered; for new cases, please add to the end
         assert_debug_snapshot!(parse_crontab("* * * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap());
@@ -636,8 +632,7 @@ mod tests {
 
     #[test]
     fn test_parse_crontab_failed() {
-        setup_logging();
-
+        // snapshot files are ordered; for new cases, please add to the end
         assert_snapshot!(parse_crontab("invalid 4 * * * Asia/Shanghai").unwrap_err());
         assert_snapshot!(parse_crontab("* * * * * Unknown/Timezone").unwrap_err());
         assert_snapshot!(parse_crontab("* 5-4 * * * Asia/Shanghai").unwrap_err());
@@ -658,7 +653,6 @@ mod tests {
     #[test]
     fn test_crontab_guru_examples() {
         // crontab.guru examples: https://crontab.guru/examples.html
-
         assert_debug_snapshot!(parse_crontab("* * * * * UTC").unwrap());
         assert_debug_snapshot!(parse_crontab("*/2 * * * * UTC").unwrap());
         assert_debug_snapshot!(parse_crontab("1-59/2 * * * * UTC").unwrap());

@@ -88,8 +88,13 @@ fn main() {
 
 `cronexpr` is [on crates.io](https://crates.io/crates/cronexpr) and can be used by adding `cronexpr` to your dependencies in your project's `Cargo.toml`. Or more simply, just run `cargo add cronexpr`.
 
+## Dependencies
 
+`cronexpr` depends on:
 
-```shell
-cargo add cronexpr
-```
+* [thiserror](https://docs.rs/thiserror/) to define our `Error` type.
+* [jiff](https://docs.rs/jiff/) for all the datetime things. This is almost internal, except:
+  * the timestamp returned is a `jiff::Zoned`, although you can treat it as something defined by `cronexpr`.
+  * the input type `MakeTimestamp` is a wrapper of `jiff::Timestamp`, but it's defined by `cronexpr` and enables you create a Timestamp from a string, milliseconds, nanoseconds, and more, without directly depend on `jiff::Timestamp` (you can still depend on it if you'd like).
+* [winnow](https://docs.rs/winnow/) for parsing the crontab expression. This is fully internal: you don't need to understand it.
+

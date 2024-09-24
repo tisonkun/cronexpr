@@ -525,35 +525,12 @@ fn error_with_context<E: std::error::Error>(context: &str) -> impl FnOnce(E) -> 
 }
 
 #[cfg(test)]
-fn setup_logging() {
-    use logforth::append;
-    use logforth::filter::EnvFilter;
-    use logforth::layout::TextLayout;
-    use logforth::Dispatch;
-    use logforth::Logger;
-
-    static SETUP_LOGGING: std::sync::Once = std::sync::Once::new();
-    SETUP_LOGGING.call_once(|| {
-        Logger::new()
-            .dispatch(
-                Dispatch::new()
-                    .filter(EnvFilter::from_default_env_or("DEBUG"))
-                    .layout(TextLayout::default())
-                    .append(append::Stderr),
-            )
-            .apply()
-            .unwrap();
-    });
-}
-
-#[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
     use insta::assert_snapshot;
     use jiff::Zoned;
 
-    use crate::setup_logging;
     use crate::Crontab;
     use crate::Driver;
     use crate::MakeTimestamp;
@@ -569,8 +546,6 @@ mod tests {
 
     #[test]
     fn test_next_timestamp() {
-        setup_logging();
-
         let mut driver = make_driver("0 0 1 1 * Asia/Shanghai", "2024-01-01T00:00:00+08:00");
         assert_snapshot!(drive(&mut driver), @"2025-01-01T00:00:00+08:00[Asia/Shanghai]");
 
