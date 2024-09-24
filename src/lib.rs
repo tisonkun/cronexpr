@@ -107,7 +107,7 @@ struct ParsedDaysOfWeek {
     /// @see [PossibleValue::NthDayOfWeek]
     nth_days_of_week: HashSet<(u8, Weekday)>,
 
-    // to implement vixie's cron behavior
+    // to implement Vixie's cron behavior
     // ref - https://crontab.guru/cron-bug.html
     start_with_asterisk: bool,
 }
@@ -153,7 +153,7 @@ struct ParsedDaysOfMonth {
     /// @see [PossibleValue::NearestWeekday]
     nearest_weekdays: BTreeSet<u8>,
 
-    // to implement vixie's cron behavior
+    // to implement Vixie's cron behavior
     // ref - https://crontab.guru/cron-bug.html
     start_with_asterisk: bool,
 }
@@ -307,13 +307,21 @@ impl Crontab {
                 continue;
             }
 
-            // TODO(tisonkun): there is a bug in crontab to behavior differently from the next lines
-            //  when both days_of_month and days_of_week are set; figure out how to handle it:
-            //  https://crontab.guru/cron-bug.html
-
-            if !self.days_of_month.matches(&next) {
-                next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
-                continue;
+            // implement Vixie's cron bug: https://crontab.guru/cron-bug.html
+            if self.days_of_month.start_with_asterisk || self.days_of_week.start_with_asterisk {
+                // 1. use intersection if any of the two fields start with '*'
+                let cond = self.days_of_month.matches(&next) && self.days_of_week.matches(&next);
+                if !cond {
+                    next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
+                    continue;
+                }
+            } else {
+                // 2. otherwise, use union
+                let cond = self.days_of_month.matches(&next) && self.days_of_week.matches(&next);
+                if !cond {
+                    next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
+                    continue;
+                }
             }
 
             if !self.hours.matches(next.hour() as u8) {
@@ -323,11 +331,6 @@ impl Crontab {
 
             if !self.minutes.matches(next.minute() as u8) {
                 next = advance_time_and_round(next, 1.minute(), Some(Unit::Minute))?;
-                continue;
-            }
-
-            if !self.days_of_week.matches(&next) {
-                next = advance_time_and_round(next, 1.day(), Some(Unit::Day))?;
                 continue;
             }
 
