@@ -98,3 +98,12 @@ fn main() {
   * the input type `MakeTimestamp` is a wrapper of `jiff::Timestamp`, but it's defined by `cronexpr` and enables you create a Timestamp from a string, milliseconds, nanoseconds, and more, without directly depend on `jiff::Timestamp` (you can still depend on it if you'd like).
 * [winnow](https://docs.rs/winnow/) for parsing the crontab expression. This is fully internal: you don't need to understand it.
 
+## Minimum Rust version policy
+
+This crate is built against the latest stable release, and its minimum supported rustc version is 1.75.0.
+
+The policy is that the minimum Rust version required to use this crate can be increased in minor version updates. For example, if cronexpr 1.0 requires Rust 1.20.0, then cronexpr 1.0.z for all values of z will also require Rust 1.20.0 or newer. However, cronexpr 1.y for y > 0 may require a newer minimum version of Rust.
+
+## License
+
+This project is licensed under [Apache License, Version 2.0](LICENSE).
