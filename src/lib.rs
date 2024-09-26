@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! # Crontab
-//!
-//! A library to parse and drive the crontab expression.
+//! `cronexpr` is a library to parse and drive the crontab expression.
 //!
 //! Here is a quick example that shows how to parse a cron expression and drive it with a timestamp:
 //!
@@ -75,7 +73,7 @@
 //!
 //! For more complex and edge cases, read the [Edge cases](#edge-cases) section.
 //!
-//! ## Syntax overview
+//! # Syntax overview
 //!
 //! This crates supports all the syntax of [standard crontab] and most of the non-standard
 //! extensions.
@@ -104,12 +102,12 @@
 //! * [Last day of week (`5L`)](#last-day-of-week-5l)
 //! * [Nth day of week (`5#3`)](#nth-day-of-week-53)
 //!
-//! ## Timezone
+//! # Timezone
 //!
 //! Timezone is parsed internally by [`jiff::tz::TimeZone::get`][TimeZone::get]. It supports all the
 //! timezone names in the IANA Time Zone Database. See [the list of time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List).
 //!
-//! ## Single value
+//! # Single value
 //!
 //! Every field (except timezone) can be a single value.
 //!
@@ -127,12 +125,12 @@
 //!
 //! Days of week and days of month support extra syntax, read their dedicated sections below.
 //!
-//! ## Asterisk
+//! # Asterisk
 //!
 //! Asterisks (also known as wildcard) represents "all". For example, using `* * * * *` will run
 //! every minute. Using `* * * * 1` will run every minute only on Monday.
 //!
-//! ## Range
+//! # Range
 //!
 //! Hyphen (`-`) defines ranges. For example, `JAN-JUN` indicates every month from January to June,
 //! _inclusive_.
@@ -140,7 +138,7 @@
 //! Range bound can be any valid [single value](#single-value), but the left bound must be less than
 //! or equal to the right bound.
 //!
-//! ## Step
+//! # Step
 //!
 //! In Vixie's cron, slash (`/`) can be combined with ranges to specify step values.
 //!
@@ -170,7 +168,7 @@
 //! Note that this is to support the existing widely adopted syntax, users are encouraged to use
 //! the more explicit form.
 //!
-//! ## List
+//! # List
 //!
 //! Commas (`,`) are used to separate items of a list. For example, using `MON,WED,FRI` in the 5th
 //! field (day of week) means Mondays, Wednesdays and Fridays.
@@ -182,17 +180,17 @@
 //! List items are parsed delimited by commas. This takes the highest precedence in the parsing.
 //! Thus, `1-10,40-50/2` is parsed as `1,2,3,4,5,6,7,8,9,10,40,42,44,46,48,50`.
 //!
-//! ## Day of month extension
+//! # Day of month extension
 //!
 //! All the extensions below can be specified only alone or as a single item of a list, not in a
 //! range or a step.
 //!
-//! ### Last day of month (`L`)
+//! ## Last day of month (`L`)
 //!
 //! The `L` character is allowed for the day-of-month field. This character specifies the last day
 //! of the month.
 //!
-//! ### Nearest weekday (`1W`, `15W`, etc.)
+//! ## Nearest weekday (`1W`, `15W`, etc.)
 //!
 //! The `W` character is allowed for the day-of-month field. This character is used to specify the
 //! weekday (Monday-Friday) nearest the given day. As an example, if `15W` is specified as the value
@@ -202,25 +200,25 @@
 //! However, if `1W` is specified as the value for day-of-month, and the 1st is a Saturday, the
 //! trigger fires on Monday the 3rd, as it does not 'jump' over the boundary of a month's days.
 //!
-//! ## Day of week extension
+//! # Day of week extension
 //!
 //! All the extensions below can be specified only alone or as a single item of a list, not in a
 //! range or a step.
 //!
-//! ### Last day of week (`5L`)
+//! ## Last day of week (`5L`)
 //!
 //! The `L` character is allowed for the day-of-week field. This character specifies constructs such
 //! as "the last Friday" (`5L`) of a given month.
 //!
-//! ### Nth day of week (`5#3`)
+//! ## Nth day of week (`5#3`)
 //!
 //! The `#` character is allowed for the day-of-week field, and must be followed by a number between
 //! one and five. It allows specifying constructs such as "the second Friday" of a given month. For
 //! example, entering `5#3` in the day-of-week field corresponds to the third Friday of every month.
 //!
-//! ## Edge cases
+//! # Edge cases
 //!
-//! ### The Vixie's cron bug became the de-facto standard
+//! ## The Vixie's cron bug became the de-facto standard
 //!
 //! Read [the article](https://crontab.guru/cron-bug.html) for more details.
 //!
@@ -308,7 +306,7 @@
 //! assert_eq!(next(&mut iter2), "2024-10-01T12:00:00+00:00[UTC]");
 //! ```
 //!
-//! ### Nearest weekday at the edge of the month
+//! ## Nearest weekday at the edge of the month
 //!
 //! Nearest weekday does not 'jump' over the boundary of a month's days.
 //!
@@ -323,14 +321,14 @@
 //! If `31W` is specified as the value for day-of-month, the month does not have 31 days, the
 //! trigger won't fire in the month. This is the same for `30W`, `29W`, etc.
 //!
-//! ### Nth day of week does not exist
+//! ## Nth day of week does not exist
 //!
 //! If the Nth day of week does not exist in the month, the trigger won't fire in the month.
 //! This happens only when the month has less than five of the weekday.
 //!
-//! ## FAQ
+//! # FAQ
 //!
-//! ### Why do you create this crate?
+//! ## Why do you create this crate?
 //!
 //! The other way when I was implementing features like [`CREATE TASK` in Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-task),
 //! it comes to a requirement to support parsing and driving a crontab expression.
@@ -354,12 +352,17 @@
 //! user experience is quite different. Also, the syntax that `croner` or `saffron` supports is
 //! subtly different from my demand.
 //!
+//! [`croner`]: https://docs.rs/croner
+//! [`saffron`]: https://docs.rs/saffron
+//!
 //! Other libraries are unmaintained or immature to use.
 //!
 //! Last, most candidates using [`chrono`] to processing datetime, while I'd prefer to extend the
 //! [`jiff`] ecosystem.
 //!
-//! ### Why does the crate require the timezone to be specified in the crontab expression?
+//! [`chrono`]: https://docs.rs/chrono
+//!
+//! ## Why does the crate require the timezone to be specified in the crontab expression?
 //!
 //! Mainly two reasons:
 //!
@@ -387,7 +390,7 @@
 //! than execute the command. Other aliases should be easily converted to the syntax this crate
 //! supports.
 //!
-//! ### Why not support seconds and/or years?
+//! ## Why not support seconds and/or years?
 //!
 //! Crontab jobs are typically _not_ frequent tasks that run in seconds. Especially for scheduling
 //! tasks in a distributed database, trying to specify a task in seconds is impractical.
@@ -415,14 +418,14 @@
 //!
 //! If you need to match certain years, please do it externally.
 //!
-//! ### Why not support passing command to execute?
+//! ## Why not support passing command to execute?
 //!
 //! The original purpose of this crate to provide a library to parse and drive the crontab
 //! expression to find the next timestamp, while the execution part is scheduled outside.
 //!
 //! Note that a crontab library scheduling command can be built upon this crate.
 //!
-//! ### Why not support `?`, `%` and many other non-standard extensions?
+//! ## Why not support `?`, `%` and many other non-standard extensions?
 //!
 //! For `?`, it's a workaround to `*` and the famous cron bug. This crate implements the Vixie's
 //! cron behavior, so `?` is not necessary.
