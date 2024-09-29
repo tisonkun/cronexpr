@@ -661,6 +661,102 @@ impl<'a> TryFrom<&'a str> for Crontab {
 
 /// A helper struct to construct a [`Timestamp`]. This is useful to avoid version lock-in to
 /// [`jiff`].
+///
+/// # Examples for Trait Implementations
+///
+/// ## Conversion from `Timestamp`
+///
+/// You can create a `MakeTimestamp` instance from an existing `Timestamp` by using the
+/// `From` trait implementation:
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+/// use jiff::Timestamp;
+///
+/// let timestamp = Timestamp::from_second(1704067200).unwrap();
+/// let make_timestamp: MakeTimestamp = timestamp.into();
+///
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
+/// ## Parsing from `&str`
+///
+/// The `MakeTimestamp` struct can also be created by parsing a string representation of a
+/// timestamp. This is done using the `FromStr` trait implementation:
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+///
+/// let input = "2024-01-01T00:00:00Z";
+/// let make_timestamp: MakeTimestamp = input.parse().unwrap();
+///
+/// assert_eq!(1704067200, make_timestamp.0.as_second());
+/// ```
+///
+/// ## Using `TryFrom`
+///
+/// You can use the `TryFrom` trait to attempt to convert a string directly into a
+/// `MakeTimestamp` instance:
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+///
+/// let input = "2024-01-01T00:00:00Z";
+/// let make_timestamp = MakeTimestamp::try_from(input).unwrap();
+///
+/// assert_eq!(1704067200, make_timestamp.0.as_second());
+/// ```
+///
+///
+/// # Examples for Creating Timestamps from Duration
+///
+/// ## Creating from Seconds
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+///
+/// let seconds = 1704067200;
+/// let make_timestamp = MakeTimestamp::from_second(seconds).unwrap();
+///
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
+///
+/// ## Creating from Milliseconds
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+///
+/// let milliseconds = 1704067200000;
+/// let make_timestamp = MakeTimestamp::from_millisecond(milliseconds).unwrap();
+///
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
+///
+/// ## Creating from Microseconds
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+///
+/// let microseconds = 1704067200000000;
+/// let make_timestamp = MakeTimestamp::from_microsecond(microseconds).unwrap();
+///
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
+///
+/// ## Creating from Nanoseconds
+///
+/// ```
+/// use cronexpr::MakeTimestamp;
+///
+/// let nanoseconds = 1704067200000000000;
+/// let make_timestamp = MakeTimestamp::from_nanosecond(nanoseconds).unwrap();
+///
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
 #[derive(Debug, Copy, Clone)]
 pub struct MakeTimestamp(pub Timestamp);
 
@@ -689,36 +785,24 @@ impl<'a> TryFrom<&'a str> for MakeTimestamp {
 }
 
 impl MakeTimestamp {
-    /// Creates a new instant in time from the number of seconds elapsed since the Unix epoch.
-    ///
-    /// See [`Timestamp::from_second`] for more details.
     pub fn from_second(second: i64) -> Result<Self, Error> {
         Timestamp::from_second(second)
             .map(MakeTimestamp)
             .map_err(error_with_context("failed to make timestamp"))
     }
 
-    /// Creates a new instant in time from the number of milliseconds elapsed since the Unix epoch.
-    ///
-    /// See [`Timestamp::from_millisecond`] for more details.
     pub fn from_millisecond(millisecond: i64) -> Result<Self, Error> {
         Timestamp::from_millisecond(millisecond)
             .map(MakeTimestamp)
             .map_err(error_with_context("failed to make timestamp"))
     }
 
-    /// Creates a new instant in time from the number of microseconds elapsed since the Unix epoch.
-    ///
-    /// See [`Timestamp::from_microsecond`] for more details.
     pub fn from_microsecond(microsecond: i64) -> Result<Self, Error> {
         Timestamp::from_microsecond(microsecond)
             .map(MakeTimestamp)
             .map_err(error_with_context("failed to make timestamp"))
     }
 
-    /// Creates a new instant in time from the number of nanoseconds elapsed since the Unix epoch.
-    ///
-    /// See [`Timestamp::from_nanosecond`] for more details.
     pub fn from_nanosecond(nanosecond: i128) -> Result<Self, Error> {
         Timestamp::from_nanosecond(nanosecond)
             .map(MakeTimestamp)
