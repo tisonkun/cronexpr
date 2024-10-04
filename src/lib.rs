@@ -335,7 +335,7 @@
 //!
 //! Typically, the language interface looks like:
 //!
-//! ```schedule
+//! ```sql
 //! CREATE TASK do_retention
 //! SCHEDULE = '* * * * * Asia/Shanghai'
 //! AS
@@ -662,101 +662,56 @@ impl<'a> TryFrom<&'a str> for Crontab {
 /// A helper struct to construct a [`Timestamp`]. This is useful to avoid version lock-in to
 /// [`jiff`].
 ///
-/// # Examples for Trait Implementations
+/// # Examples
 ///
-/// ## Conversion from `Timestamp`
+/// ## Make timestamp from String
 ///
-/// You can create a `MakeTimestamp` instance from an existing `Timestamp` by using the
+/// The `MakeTimestamp` struct can be created by parsing a string representation of a timestamp.
+///
+/// ```rust
+/// use cronexpr::MakeTimestamp;
+///
+/// // FromStr
+/// let make_timestamp: MakeTimestamp = "2024-01-01T00:00:00Z".parse().unwrap();
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+///
+/// // TryFrom<&str>
+/// let make_timestamp = MakeTimestamp::try_from("2024-01-01T00:00:00Z").unwrap();
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
+/// ## Make timestamp from duration to [`UNIX_EPOCH`](std::time::UNIX_EPOCH)
+///
+/// ```rust
+/// use cronexpr::MakeTimestamp;
+///
+/// let make_timestamp = MakeTimestamp::from_second(-1704067200).unwrap();
+/// assert_eq!("1916-01-02T00:00:00Z", make_timestamp.0.to_string());
+///
+/// let make_timestamp = MakeTimestamp::from_second(1704067200).unwrap();
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+///
+/// let make_timestamp = MakeTimestamp::from_millisecond(1704067200000).unwrap();
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+///
+/// let make_timestamp = MakeTimestamp::from_microsecond(1704067200000000).unwrap();
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+///
+/// let make_timestamp = MakeTimestamp::from_nanosecond(1704067200000000000).unwrap();
+/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
+/// ```
+///
+/// ## Make timestamp from jiff's [`Timestamp`]
+///
+/// You can create a `MakeTimestamp` instance from an existing jiff's `Timestamp` by using the
 /// `From` trait implementation:
 ///
-/// ```
-/// use cronexpr::MakeTimestamp;
-/// use jiff::Timestamp;
-///
-/// let timestamp = Timestamp::from_second(1704067200).unwrap();
-/// let make_timestamp: MakeTimestamp = timestamp.into();
+/// ```rust
+/// let timestamp = jiff::Timestamp::from_second(1704067200).unwrap();
+/// let make_timestamp = cronexpr::MakeTimestamp::from(timestamp);
 ///
 /// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
 /// ```
-///
-/// ## Parsing from `&str`
-///
-/// The `MakeTimestamp` struct can also be created by parsing a string representation of a
-/// timestamp. This is done using the `FromStr` trait implementation:
-///
-/// ```
-/// use cronexpr::MakeTimestamp;
-///
-/// let input = "2024-01-01T00:00:00Z";
-/// let make_timestamp: MakeTimestamp = input.parse().unwrap();
-///
-/// assert_eq!(1704067200, make_timestamp.0.as_second());
-/// ```
-///
-/// ## Using `TryFrom`
-///
-/// You can use the `TryFrom` trait to attempt to convert a string directly into a
-/// `MakeTimestamp` instance:
-///
-/// ```
-/// use cronexpr::MakeTimestamp;
-///
-/// let input = "2024-01-01T00:00:00Z";
-/// let make_timestamp = MakeTimestamp::try_from(input).unwrap();
-///
-/// assert_eq!(1704067200, make_timestamp.0.as_second());
-/// ```
-///
-///
-/// # Examples for Creating Timestamps from Duration
-///
-/// ## Creating from Seconds
-///
-/// ```
-/// use cronexpr::MakeTimestamp;
-///
-/// let seconds = 1704067200;
-/// let make_timestamp = MakeTimestamp::from_second(seconds).unwrap();
-///
-/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
-/// ```
-///
-///
-/// ## Creating from Milliseconds
-///
-/// ```
-/// use cronexpr::MakeTimestamp;
-///
-/// let milliseconds = 1704067200000;
-/// let make_timestamp = MakeTimestamp::from_millisecond(milliseconds).unwrap();
-///
-/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
-/// ```
-///
-///
-/// ## Creating from Microseconds
-///
-/// ```
-/// use cronexpr::MakeTimestamp;
-///
-/// let microseconds = 1704067200000000;
-/// let make_timestamp = MakeTimestamp::from_microsecond(microseconds).unwrap();
-///
-/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
-/// ```
-///
-///
-/// ## Creating from Nanoseconds
-///
-/// ```
-/// use cronexpr::MakeTimestamp;
-///
-/// let nanoseconds = 1704067200000000000;
-/// let make_timestamp = MakeTimestamp::from_nanosecond(nanoseconds).unwrap();
-///
-/// assert_eq!("2024-01-01T00:00:00Z", make_timestamp.0.to_string());
-/// ```
-///
 #[derive(Debug, Copy, Clone)]
 pub struct MakeTimestamp(pub Timestamp);
 
