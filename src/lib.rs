@@ -78,8 +78,9 @@
 //! This crates supports all the syntax of [standard crontab] and most of the non-standard
 //! extensions.
 //!
-//! The mainly difference is that this crate always requires the timezone to be specified in the
-//! crontab expression. This is because the timezone is necessary to determine the next timestamp.
+//! The mainly difference is that this crate may accept an explicit timezone in the crontab
+//! expression, which is necessary to determine the next timestamp. When the timezone is not
+//! specified, it is inferred as the system's timezone.
 //!
 //! [standard crontab]: https://en.wikipedia.org/wiki/Cron#Cron_expression
 //!
@@ -373,6 +374,9 @@
 //!    and forcing the user to convert the datetime to UTC.
 //!
 //! If there is a third reason, that is, it's how Snowflake does.
+//!
+//! Starting from 1.1.0, the timezone can be _optional_ by calling [`parse_crontab_with`] a
+//! [`ParseOptions`] whose `fallback_to_system_timezone` is set to `true`.
 //!
 //! ### Why does [`Crontab::find_next`] and [`Crontab::iter_after`] only support exclusive bounds?
 //!

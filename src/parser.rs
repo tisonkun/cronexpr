@@ -40,16 +40,16 @@ use crate::PossibleValue;
 /// Options to manipulate the parsing manner.
 #[derive(Debug, Copy, Clone)]
 pub struct ParseOptions {
-    /// Whether the crontab expression must have a timezone part.
+    /// Whether fallback to the system timezone when the timezone part is missing.
     ///
     /// Default to `false`.
-    pub required_timezone: bool,
+    pub fallback_to_system_timezone: bool,
 }
 
 impl Default for ParseOptions {
     fn default() -> Self {
         ParseOptions {
-            required_timezone: false,
+            fallback_to_system_timezone: false,
         }
     }
 }
@@ -89,11 +89,11 @@ pub fn normalize_crontab(input: &str) -> String {
 /// parse_crontab_with("2 4 * * 0-6 Asia/Shanghai", options).unwrap();
 /// parse_crontab_with("2 4 */3 * 0-6 Asia/Shanghai", options).unwrap();
 ///
-/// options.required_timezone = true;
-/// parse_crontab_with("* * * * *", options).unwrap_err();
-///
-/// options.required_timezone = false;
+/// options.fallback_to_system_timezone = true;
 /// parse_crontab_with("* * * * *", options).unwrap();
+///
+/// options.fallback_to_system_timezone = false;
+/// parse_crontab_with("* * * * *", options).unwrap_err();
 /// ```
 pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
     fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
@@ -150,7 +150,7 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
         parse_timezone
             .parse(timezone_part)
             .map_err(|err| format_parse_error(&normalized, timezone_start, err))?
-    } else if !options.required_timezone {
+    } else if options.fallback_to_system_timezone {
         // if timezone is optional and missing, default to system's timezone
         jiff::tz::TimeZone::system()
     } else {
@@ -259,7 +259,7 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
                 .collect::<Vec<_>>()
         }),
     )))
-    .parse_next(input)?;
+        .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     for value in values {
@@ -342,7 +342,7 @@ fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
                 .collect::<Vec<_>>()
         }),
     )))
-    .parse_next(input)?;
+        .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     let mut last_days_of_week = HashSet::new();
@@ -401,7 +401,7 @@ fn parse_days_of_month(input: &mut &str) -> PResult<ParsedDaysOfMonth> {
                 .collect::<Vec<_>>()
         }),
     )))
-    .parse_next(input)?;
+        .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     let mut last_day_of_month = false;
@@ -465,7 +465,7 @@ fn do_parse_number_only(
                 .collect::<Vec<_>>()
         }),
     )))
-    .parse_next(input)?;
+        .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     for value in values {
@@ -684,11 +684,14 @@ mod tests {
         assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TUE Asia/Shanghai").unwrap());
 
         // optional timezone
+        let options = ParseOptions {
+            fallback_to_system_timezone: true,
+        };
         insta::with_settings!({
             filters => vec![(r"TZif\(\n.*\n.*\)", "[SYSTEM]")]
         }, {
-            assert_debug_snapshot!(parse_crontab("0 0 1 1 5").unwrap());
-            assert_debug_snapshot!(parse_crontab("0 0 1 1 5 ").unwrap());
+            assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5", options).unwrap());
+            assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5 ", options).unwrap());
         });
     }
 
@@ -717,15 +720,11 @@ mod tests {
         assert_snapshot!(parse_crontab("0 0").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1 5").unwrap_err());
+        assert_snapshot!(parse_crontab("0 0 1 1 5 ").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z Z").unwrap_err());
         assert_snapshot!(parse_crontab("").unwrap_err());
-
-        let options = ParseOptions {
-            required_timezone: true,
-        };
-        assert_snapshot!(parse_crontab_with("0 0 1 1 5", options).unwrap_err());
-        assert_snapshot!(parse_crontab_with("0 0 1 1 5 ", options).unwrap_err());
     }
 
     #[test]
