@@ -1,6 +1,6 @@
 ---
 source: src/parser.rs
-expression: "parse_crontab(\"0 0 1 1 5 \").unwrap()"
+expression: "parse_crontab_with(\"0 0 1 1 5 \", options).unwrap()"
 ---
 Crontab {
     minutes: PossibleLiterals {
@@ -35,6 +35,6 @@ Crontab {
         start_with_asterisk: false,
     },
     timezone: TimeZone(
-        [SYSTEM],
+        "UTC",
     ),
 }

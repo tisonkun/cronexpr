@@ -40,17 +40,38 @@ use crate::PossibleValue;
 /// Options to manipulate the parsing manner.
 #[derive(Debug, Copy, Clone)]
 pub struct ParseOptions {
+    /// Whether fallback to UTC when the timezone part is missing.
+    ///
+    /// Default to `false`.
+    pub fallback_to_utc_timezone: bool,
+
     /// Whether fallback to the system timezone when the timezone part is missing.
     ///
     /// Default to `false`.
     pub fallback_to_system_timezone: bool,
 }
 
+#[allow(clippy::derivable_impls)] // make the defaults clear
 impl Default for ParseOptions {
     fn default() -> Self {
         ParseOptions {
+            fallback_to_utc_timezone: false,
             fallback_to_system_timezone: false,
         }
+    }
+}
+
+impl ParseOptions {
+    /// Ensure no options conflict.
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.fallback_to_utc_timezone && self.fallback_to_system_timezone {
+            return Err(Error(
+                "fallback_to_utc_timezone and fallback_to_system_timezone cannot be both `true`"
+                    .to_string(),
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -96,6 +117,13 @@ pub fn normalize_crontab(input: &str) -> String {
 /// parse_crontab_with("* * * * *", options).unwrap_err();
 /// ```
 pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
+    options.validate()?;
+
+    let normalized = normalize_crontab(input);
+    if normalized.is_empty() {
+        return Err(format_error(&normalized, "", "cannot be empty"));
+    }
+
     fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
         if start < input.len() {
             Ok(input[start..]
@@ -105,11 +133,6 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
         } else {
             Err(format_incomplete_error(input, next_part))
         }
-    }
-
-    let normalized = normalize_crontab(input);
-    if normalized.is_empty() {
-        return Err(format_error(&normalized, "", "cannot be empty"));
     }
 
     let minutes_start = 0;
@@ -150,8 +173,9 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
         parse_timezone
             .parse(timezone_part)
             .map_err(|err| format_parse_error(&normalized, timezone_start, err))?
+    } else if options.fallback_to_utc_timezone {
+        jiff::tz::TimeZone::UTC
     } else if options.fallback_to_system_timezone {
-        // if timezone is optional and missing, default to system's timezone
         jiff::tz::TimeZone::system()
     } else {
         return Err(format_incomplete_error(&normalized, "timezone"));
@@ -259,7 +283,7 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
                 .collect::<Vec<_>>()
         }),
     )))
-        .parse_next(input)?;
+    .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     for value in values {
@@ -342,7 +366,7 @@ fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
                 .collect::<Vec<_>>()
         }),
     )))
-        .parse_next(input)?;
+    .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     let mut last_days_of_week = HashSet::new();
@@ -401,7 +425,7 @@ fn parse_days_of_month(input: &mut &str) -> PResult<ParsedDaysOfMonth> {
                 .collect::<Vec<_>>()
         }),
     )))
-        .parse_next(input)?;
+    .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     let mut last_day_of_month = false;
@@ -465,7 +489,7 @@ fn do_parse_number_only(
                 .collect::<Vec<_>>()
         }),
     )))
-        .parse_next(input)?;
+    .parse_next(input)?;
 
     let mut literals = BTreeSet::new();
     for value in values {
@@ -685,7 +709,15 @@ mod tests {
 
         // optional timezone
         let options = ParseOptions {
+            fallback_to_utc_timezone: true,
+            ..Default::default()
+        };
+        assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5", options).unwrap());
+        assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5 ", options).unwrap());
+
+        let options = ParseOptions {
             fallback_to_system_timezone: true,
+            ..Default::default()
         };
         insta::with_settings!({
             filters => vec![(r"TZif\(\n.*\n.*\)", "[SYSTEM]")]
