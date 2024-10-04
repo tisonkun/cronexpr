@@ -452,6 +452,8 @@ use jiff::ZonedRound;
 mod parser;
 pub use parser::normalize_crontab;
 pub use parser::parse_crontab;
+pub use parser::parse_crontab_with;
+pub use parser::ParseOptions;
 
 /// An error that can occur in this crate.
 #[derive(Debug, Clone, thiserror::Error)]

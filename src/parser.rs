@@ -37,6 +37,23 @@ use crate::ParsedDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
 
+/// Options to manipulate the parsing manner.
+#[derive(Debug, Copy, Clone)]
+pub struct ParseOptions {
+    /// Whether the crontab expression must have a timezone part.
+    ///
+    /// Default to `false`.
+    pub required_timezone: bool,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        ParseOptions {
+            required_timezone: false,
+        }
+    }
+}
+
 /// Normalize a crontab expression to compact form.
 ///
 /// ```rust
@@ -63,14 +80,22 @@ pub fn normalize_crontab(input: &str) -> String {
 /// syntax definitions.
 ///
 /// ```rust
-/// use cronexpr::parse_crontab;
+/// use cronexpr::parse_crontab_with;
+/// use cronexpr::ParseOptions;
 ///
-/// parse_crontab("* * * * * Asia/Shanghai").unwrap();
-/// parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
-/// parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap();
-/// parse_crontab("2 4 */3 * 0-6 Asia/Shanghai").unwrap();
+/// let mut options = ParseOptions::default();
+/// parse_crontab_with("* * * * * Asia/Shanghai", options).unwrap();
+/// parse_crontab_with("2 4 * * * Asia/Shanghai", options).unwrap();
+/// parse_crontab_with("2 4 * * 0-6 Asia/Shanghai", options).unwrap();
+/// parse_crontab_with("2 4 */3 * 0-6 Asia/Shanghai", options).unwrap();
+///
+/// options.required_timezone = true;
+/// parse_crontab_with("* * * * *", options).unwrap_err();
+///
+/// options.required_timezone = false;
+/// parse_crontab_with("* * * * *", options).unwrap();
 /// ```
-pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
+pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
     fn find_next_part(input: &str, start: usize, next_part: &str) -> Result<usize, Error> {
         if start < input.len() {
             Ok(input[start..]
@@ -119,15 +144,18 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
         .map_err(|err| format_parse_error(&normalized, days_of_week_start, err))?;
 
     let timezone_start = days_of_week_end + 1;
-    let timezone_end = if timezone_start < normalized.len() {
-        normalized.len()
+    let timezone = if timezone_start < normalized.len() {
+        let timezone_end = normalized.len();
+        let timezone_part = &normalized[timezone_start..timezone_end];
+        parse_timezone
+            .parse(timezone_part)
+            .map_err(|err| format_parse_error(&normalized, timezone_start, err))?
+    } else if !options.required_timezone {
+        // if timezone is optional and missing, default to system's timezone
+        jiff::tz::TimeZone::system()
     } else {
         return Err(format_incomplete_error(&normalized, "timezone"));
     };
-    let timezone_part = &normalized[timezone_start..timezone_end];
-    let timezone = parse_timezone
-        .parse(timezone_part)
-        .map_err(|err| format_parse_error(&normalized, timezone_start, err))?;
 
     Ok(Crontab {
         minutes,
@@ -137,6 +165,21 @@ pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
         days_of_week,
         timezone,
     })
+}
+
+/// Parse a crontab expression to [`Crontab`] with the default [`ParseOptions`]. See
+/// [the top-level documentation][crate] for the full syntax definitions.
+///
+/// ```rust
+/// use cronexpr::parse_crontab;
+///
+/// parse_crontab("* * * * * Asia/Shanghai").unwrap();
+/// parse_crontab("2 4 * * * Asia/Shanghai").unwrap();
+/// parse_crontab("2 4 * * 0-6 Asia/Shanghai").unwrap();
+/// parse_crontab("2 4 */3 * 0-6 Asia/Shanghai").unwrap();
+/// ```
+pub fn parse_crontab(input: &str) -> Result<Crontab, Error> {
+    parse_crontab_with(input, ParseOptions::default())
 }
 
 fn format_error(input: &str, indent: &str, reason: &str) -> Error {
@@ -639,6 +682,14 @@ mod tests {
         assert_debug_snapshot!(parse_crontab("1,2,10 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 1 1 * Asia/Shanghai").unwrap());
         assert_debug_snapshot!(parse_crontab("1-10,2,10,50 1 * 1 TUE Asia/Shanghai").unwrap());
+
+        // optional timezone
+        insta::with_settings!({
+            filters => vec![(r"TZif\(\n.*\n.*\)", "[SYSTEM]")]
+        }, {
+            assert_debug_snapshot!(parse_crontab("0 0 1 1 5").unwrap());
+            assert_debug_snapshot!(parse_crontab("0 0 1 1 5 ").unwrap());
+        });
     }
 
     #[test]
@@ -666,11 +717,15 @@ mod tests {
         assert_snapshot!(parse_crontab("0 0").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1").unwrap_err());
-        assert_snapshot!(parse_crontab("0 0 1 1 5").unwrap_err());
-        assert_snapshot!(parse_crontab("0 0 1 1 5 ").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z Z").unwrap_err());
         assert_snapshot!(parse_crontab("").unwrap_err());
+
+        let options = ParseOptions {
+            required_timezone: true,
+        };
+        assert_snapshot!(parse_crontab_with("0 0 1 1 5", options).unwrap_err());
+        assert_snapshot!(parse_crontab_with("0 0 1 1 5 ", options).unwrap_err());
     }
 
     #[test]
