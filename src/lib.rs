@@ -376,8 +376,7 @@
 //! If there is a third reason, that is, it's how Snowflake does.
 //!
 //! Starting from 1.1.0, the timezone can be _optional_ by calling [`parse_crontab_with`] a
-//! [`ParseOptions`] whose `fallback_to_system_timezone` or `fallback_to_utc_timezone` is set to
-//! `true`.
+//! [`ParseOptions`] whose `fallback_timezone_option` is not [`None`](FallbackTimezoneOption::None).
 //!
 //! ### Why does [`Crontab::find_next`] and [`Crontab::iter_after`] only support exclusive bounds?
 //!
@@ -458,6 +457,7 @@ mod parser;
 pub use parser::normalize_crontab;
 pub use parser::parse_crontab;
 pub use parser::parse_crontab_with;
+pub use parser::FallbackTimezoneOption;
 pub use parser::ParseOptions;
 
 /// An error that can occur in this crate.

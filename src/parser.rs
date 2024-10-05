@@ -37,41 +37,32 @@ use crate::ParsedDaysOfWeek;
 use crate::PossibleLiterals;
 use crate::PossibleValue;
 
-/// Options to manipulate the parsing manner.
+/// Determine the timezone to fallback when the timezone part is missing.
 #[derive(Debug, Copy, Clone)]
-pub struct ParseOptions {
-    /// Whether fallback to UTC when the timezone part is missing.
-    ///
-    /// Default to `false`.
-    pub fallback_to_utc_timezone: bool,
-
-    /// Whether fallback to the system timezone when the timezone part is missing.
-    ///
-    /// Default to `false`.
-    pub fallback_to_system_timezone: bool,
+pub enum FallbackTimezoneOption {
+    /// Do not fall back to any timezone. This means the timezone part is required.
+    None,
+    /// Fall back to [the system timezone](jiff::tz::TimeZone::system).
+    System,
+    /// Fall back to [`UTC`](jiff::tz::TimeZone::UTC).
+    UTC,
 }
 
-#[allow(clippy::derivable_impls)] // make the defaults clear
+/// Options to manipulate the parsing manner.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone)]
+pub struct ParseOptions {
+    /// Whether fallback to a certain timezone when the timezone part is missing.
+    ///
+    /// Default to `None`.
+    pub fallback_timezone_option: FallbackTimezoneOption,
+}
+
 impl Default for ParseOptions {
     fn default() -> Self {
         ParseOptions {
-            fallback_to_utc_timezone: false,
-            fallback_to_system_timezone: false,
+            fallback_timezone_option: FallbackTimezoneOption::None,
         }
-    }
-}
-
-impl ParseOptions {
-    /// Ensure no options conflict.
-    pub fn validate(&self) -> Result<(), Error> {
-        if self.fallback_to_utc_timezone && self.fallback_to_system_timezone {
-            return Err(Error(
-                "fallback_to_utc_timezone and fallback_to_system_timezone cannot be both `true`"
-                    .to_string(),
-            ));
-        }
-
-        Ok(())
     }
 }
 
@@ -102,6 +93,7 @@ pub fn normalize_crontab(input: &str) -> String {
 ///
 /// ```rust
 /// use cronexpr::parse_crontab_with;
+/// use cronexpr::FallbackTimezoneOption;
 /// use cronexpr::ParseOptions;
 ///
 /// let mut options = ParseOptions::default();
@@ -110,15 +102,13 @@ pub fn normalize_crontab(input: &str) -> String {
 /// parse_crontab_with("2 4 * * 0-6 Asia/Shanghai", options).unwrap();
 /// parse_crontab_with("2 4 */3 * 0-6 Asia/Shanghai", options).unwrap();
 ///
-/// options.fallback_to_system_timezone = true;
-/// parse_crontab_with("* * * * *", options).unwrap();
-///
-/// options.fallback_to_system_timezone = false;
 /// parse_crontab_with("* * * * *", options).unwrap_err();
+/// options.fallback_timezone_option = FallbackTimezoneOption::UTC;
+/// parse_crontab_with("* * * * *", options).unwrap();
+/// options.fallback_timezone_option = FallbackTimezoneOption::System;
+/// parse_crontab_with("* * * * *", options).unwrap();
 /// ```
 pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
-    options.validate()?;
-
     let normalized = normalize_crontab(input);
     if normalized.is_empty() {
         return Err(format_error(&normalized, "", "cannot be empty"));
@@ -173,12 +163,14 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
         parse_timezone
             .parse(timezone_part)
             .map_err(|err| format_parse_error(&normalized, timezone_start, err))?
-    } else if options.fallback_to_utc_timezone {
-        jiff::tz::TimeZone::UTC
-    } else if options.fallback_to_system_timezone {
-        jiff::tz::TimeZone::system()
     } else {
-        return Err(format_incomplete_error(&normalized, "timezone"));
+        match options.fallback_timezone_option {
+            FallbackTimezoneOption::System => jiff::tz::TimeZone::system(),
+            FallbackTimezoneOption::UTC => jiff::tz::TimeZone::UTC,
+            FallbackTimezoneOption::None => {
+                return Err(format_incomplete_error(&normalized, "timezone"));
+            }
+        }
     };
 
     Ok(Crontab {
@@ -709,14 +701,14 @@ mod tests {
 
         // optional timezone
         let options = ParseOptions {
-            fallback_to_utc_timezone: true,
+            fallback_timezone_option: FallbackTimezoneOption::UTC,
             ..Default::default()
         };
         assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5", options).unwrap());
         assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5 ", options).unwrap());
 
         let options = ParseOptions {
-            fallback_to_system_timezone: true,
+            fallback_timezone_option: FallbackTimezoneOption::System,
             ..Default::default()
         };
         insta::with_settings!({
