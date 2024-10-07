@@ -34,4 +34,4 @@ thiserror = { version = "1.0" }
 winnow = { version = "0.6.18" }
 
 [dev-dependencies]
-insta = { version = "1.40" }
+insta = { version = "1.40", features = ["filters"] }
