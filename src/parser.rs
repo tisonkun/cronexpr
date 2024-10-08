@@ -18,9 +18,10 @@ use std::ops::RangeInclusive;
 
 use jiff::civil::Weekday;
 use winnow::ascii::dec_uint;
+use winnow::combinator::alt;
 use winnow::combinator::eof;
+use winnow::combinator::fail;
 use winnow::combinator::separated;
-use winnow::combinator::{alt, fail};
 use winnow::error::ContextError;
 use winnow::error::ErrMode;
 use winnow::error::ErrorKind;
@@ -780,6 +781,13 @@ mod tests {
             assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5", options).unwrap());
             assert_debug_snapshot!(parse_crontab_with("0 0 1 1 5 ", options).unwrap());
         });
+
+        // hashed value
+        let options = ParseOptions {
+            hashed_value: Some(42),
+            ..Default::default()
+        };
+        assert_debug_snapshot!(parse_crontab_with("H * * * * America/Denver", options).unwrap());
     }
 
     #[test]
@@ -812,6 +820,9 @@ mod tests {
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z").unwrap_err());
         assert_snapshot!(parse_crontab("0 0 1 1 5 Z Z").unwrap_err());
         assert_snapshot!(parse_crontab("").unwrap_err());
+
+        // hashed value
+        assert_snapshot!(parse_crontab("H * * * * UTC").unwrap_err());
     }
 
     #[test]
