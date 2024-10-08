@@ -39,6 +39,8 @@ use crate::PossibleLiterals;
 use crate::PossibleValue;
 
 /// Determine the timezone to fallback when the timezone part is missing.
+///
+/// See also examples in the [`parse_crontab_with`] documentation.
 #[derive(Debug, Copy, Clone)]
 pub enum FallbackTimezoneOption {
     /// Do not fall back to any timezone. This means the timezone part is required.
@@ -50,6 +52,8 @@ pub enum FallbackTimezoneOption {
 }
 
 /// Options to manipulate the parsing manner.
+///
+/// See also examples in the [`parse_crontab_with`] documentation.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
 pub struct ParseOptions {
@@ -120,6 +124,11 @@ pub fn normalize_crontab(input: &str) -> String {
 /// parse_crontab_with("* * * * *", options).unwrap();
 /// options.fallback_timezone_option = FallbackTimezoneOption::System;
 /// parse_crontab_with("* * * * *", options).unwrap();
+///
+/// options.fallback_timezone_option = FallbackTimezoneOption::None;
+/// parse_crontab_with("H * * * * UTC", options).unwrap_err();
+/// options.hashed_value = Some(42);
+/// parse_crontab_with("H * * * * UTC", options).unwrap();
 /// ```
 pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab, Error> {
     let normalized = normalize_crontab(input);
@@ -788,6 +797,7 @@ mod tests {
             ..Default::default()
         };
         assert_debug_snapshot!(parse_crontab_with("H * * * * America/Denver", options).unwrap());
+        assert_debug_snapshot!(parse_crontab_with("H H H H H America/Denver", options).unwrap());
     }
 
     #[test]
