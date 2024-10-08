@@ -56,12 +56,18 @@ pub struct ParseOptions {
     ///
     /// Default to `None`.
     pub fallback_timezone_option: FallbackTimezoneOption,
+
+    /// The hashed value to replace `H` in the crontab expression. If [`None`], `H` is not allowed.
+    ///
+    /// Default to [`None`].
+    pub hashed_value: Option<u64>,
 }
 
 impl Default for ParseOptions {
     fn default() -> Self {
         ParseOptions {
             fallback_timezone_option: FallbackTimezoneOption::None,
+            hashed_value: None,
         }
     }
 }
@@ -604,6 +610,12 @@ where
 {
     (separated(1.., parse_list_item, ","), eof)
         .map(move |(ns, _): (Vec<Vec<PossibleValue>>, _)| ns.into_iter().flatten().collect())
+}
+
+fn map_hash_into_range(hashed_value: u64, range: RangeInclusive<u8>) -> u8 {
+    let modulo = range.end() - range.start() + 1;
+    let hashed_value = hashed_value % modulo as u64;
+    (range.start() + hashed_value as u8).min(*range.end())
 }
 
 trait ParserExt<I, O, E>: Parser<I, O, E> {
