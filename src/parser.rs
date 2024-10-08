@@ -18,9 +18,9 @@ use std::ops::RangeInclusive;
 
 use jiff::civil::Weekday;
 use winnow::ascii::dec_uint;
-use winnow::combinator::alt;
 use winnow::combinator::eof;
 use winnow::combinator::separated;
+use winnow::combinator::{alt, fail};
 use winnow::error::ContextError;
 use winnow::error::ErrMode;
 use winnow::error::ErrorKind;
@@ -70,6 +70,12 @@ impl Default for ParseOptions {
             hashed_value: None,
         }
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct ParseContext {
+    range_fn: fn() -> RangeInclusive<u8>,
+    hashed_value: Option<u64>,
 }
 
 /// Normalize a crontab expression to compact form.
@@ -133,32 +139,32 @@ pub fn parse_crontab_with(input: &str, options: ParseOptions) -> Result<Crontab,
 
     let minutes_start = 0;
     let minutes_end = normalized.find(' ').unwrap_or(normalized.len());
-    let minutes = parse_minutes
+    let minutes = parse_minutes(options)
         .parse(&normalized[..minutes_end])
         .map_err(|err| format_parse_error(&normalized, minutes_start, err))?;
 
     let hours_start = minutes_end + 1;
     let hours_end = find_next_part(&normalized, hours_start, "hours")?;
-    let hours = parse_hours
+    let hours = parse_hours(options)
         .parse(&normalized[hours_start..hours_end])
         .map_err(|err| format_parse_error(&normalized, hours_start, err))?;
 
     let days_of_month_start = hours_end + 1;
     let days_of_month_end = find_next_part(&normalized, days_of_month_start, "days of month")?;
-    let days_of_month = parse_days_of_month
+    let days_of_month = parse_days_of_month(options)
         .parse(&normalized[days_of_month_start..days_of_month_end])
         .map_err(|err| format_parse_error(&normalized, days_of_month_start, err))?;
 
     let months_start = days_of_month_end + 1;
     let months_end = find_next_part(&normalized, months_start, "months")?;
     let months_part = &normalized[months_start..months_end];
-    let months = parse_months
+    let months = parse_months(options)
         .parse(months_part)
         .map_err(|err| format_parse_error(&normalized, months_start, err))?;
 
     let days_of_week_start = months_end + 1;
     let days_of_week_end = find_next_part(&normalized, days_of_week_start, "days of week")?;
-    let days_of_week = parse_days_of_week
+    let days_of_week = parse_days_of_week(options)
         .parse(&normalized[days_of_week_start..days_of_week_end])
         .map_err(|err| format_parse_error(&normalized, days_of_week_start, err))?;
 
@@ -232,20 +238,31 @@ fn format_parse_error(
     format_error(input, &indent, error)
 }
 
-fn parse_minutes(input: &mut &str) -> PResult<PossibleLiterals> {
-    do_parse_number_only(|| 0..=59, input)
+fn parse_minutes<'a>(
+    options: ParseOptions,
+) -> impl Parser<&'a str, PossibleLiterals, ContextError> {
+    let context = ParseContext {
+        range_fn: || 0..=59,
+        hashed_value: options.hashed_value,
+    };
+    move |input: &mut &str| do_parse_number_only(context, input)
 }
 
-fn parse_hours(input: &mut &str) -> PResult<PossibleLiterals> {
-    do_parse_number_only(|| 0..=23, input)
+fn parse_hours<'a>(options: ParseOptions) -> impl Parser<&'a str, PossibleLiterals, ContextError> {
+    let context = ParseContext {
+        range_fn: || 0..=23,
+        hashed_value: options.hashed_value,
+    };
+    move |input: &mut &str| do_parse_number_only(context, input)
 }
 
-fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
-    let range = || 1..=12;
+fn parse_months<'a>(options: ParseOptions) -> impl Parser<&'a str, PossibleLiterals, ContextError> {
+    let context = ParseContext {
+        range_fn: || 1..=12,
+        hashed_value: options.hashed_value,
+    };
 
-    fn parse_single_month<'a>(
-        range: fn() -> RangeInclusive<u8>,
-    ) -> impl Parser<&'a str, u8, ContextError> {
+    fn parse_single_month<'a>(context: ParseContext) -> impl Parser<&'a str, u8, ContextError> {
         alt((
             "JAN".map(|_| 1),
             "FEB".map(|_| 2),
@@ -259,45 +276,52 @@ fn parse_months(input: &mut &str) -> PResult<PossibleLiterals> {
             "OCT".map(|_| 10),
             "NOV".map(|_| 11),
             "DEC".map(|_| 12),
-            parse_single_number(range),
+            parse_single_number(context),
         ))
     }
 
-    let values = parse_list(alt((
-        parse_step(range, parse_single_month).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_range(range, parse_single_month).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_single_month(range).map(|n| vec![PossibleValue::Literal(n)]),
-        parse_asterisk(range).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-    )))
-    .parse_next(input)?;
+    move |input: &mut &str| {
+        let values = parse_list(alt((
+            parse_step(context, parse_single_month).map(|r| {
+                r.into_iter()
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+            parse_range(context, parse_single_month).map(|r| {
+                r.into_iter()
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+            parse_single_month(context).map(|n| vec![PossibleValue::Literal(n)]),
+            parse_hashed_value(context).map(|n| vec![PossibleValue::Literal(n)]),
+            parse_asterisk(context).map(|r| {
+                r.into_iter()
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+        )))
+        .parse_next(input)?;
 
-    let mut literals = BTreeSet::new();
-    for value in values {
-        match value {
-            PossibleValue::Literal(value) => {
-                literals.insert(value);
+        let mut literals = BTreeSet::new();
+        for value in values {
+            match value {
+                PossibleValue::Literal(value) => {
+                    literals.insert(value);
+                }
+                _ => unreachable!("unexpected value: {value:?}"),
             }
-            _ => unreachable!("unexpected value: {value:?}"),
         }
+        Ok(PossibleLiterals { values: literals })
     }
-    Ok(PossibleLiterals { values: literals })
 }
 
-fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
-    let start_with_asterisk = input.starts_with('*');
-    let range = || 0..=7;
+fn parse_days_of_week<'a>(
+    options: ParseOptions,
+) -> impl Parser<&'a str, ParsedDaysOfWeek, ContextError> {
+    let context = ParseContext {
+        range_fn: || 0..=7,
+        hashed_value: options.hashed_value,
+    };
 
     fn norm_sunday(n: u8) -> u8 {
         if n != 0 {
@@ -313,7 +337,7 @@ fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
     }
 
     fn parse_single_day_of_week<'a>(
-        range: fn() -> RangeInclusive<u8>,
+        context: ParseContext,
     ) -> impl Parser<&'a str, u8, ContextError> {
         alt((
             "SUN".map(|_| 0),
@@ -323,131 +347,148 @@ fn parse_days_of_week(input: &mut &str) -> PResult<ParsedDaysOfWeek> {
             "THU".map(|_| 4),
             "FRI".map(|_| 5),
             "SAT".map(|_| 6),
-            parse_single_number(range),
+            parse_single_number(context),
         ))
     }
 
     fn parse_single_day_of_week_ext<'a>(
-        range: fn() -> RangeInclusive<u8>,
+        context: ParseContext,
     ) -> impl Parser<&'a str, PossibleValue, ContextError> {
         alt((
-            (parse_single_day_of_week(range), "L")
+            (parse_single_day_of_week(context), "L")
                 .map(|(n, _)| PossibleValue::LastDayOfWeek(make_weekday(n))),
             (
-                parse_single_day_of_week(range),
+                parse_single_day_of_week(context),
                 "#",
-                parse_single_number(|| 1..=5),
+                parse_single_number(ParseContext {
+                    range_fn: || 1..=5,
+                    hashed_value: None,
+                }),
             )
                 .map(|(n, _, nth)| PossibleValue::NthDayOfWeek(nth, make_weekday(n))),
-            parse_single_day_of_week(range).map(|n| PossibleValue::Literal(norm_sunday(n))),
+            parse_single_day_of_week(context).map(|n| PossibleValue::Literal(norm_sunday(n))),
+            parse_hashed_value(context).map(|n| PossibleValue::Literal(norm_sunday(n))),
         ))
     }
 
-    let values = parse_list(alt((
-        parse_step(range, parse_single_day_of_week).map(|r| {
-            r.into_iter()
-                .map(norm_sunday)
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_range(range, parse_single_day_of_week).map(|r| {
-            r.into_iter()
-                .map(norm_sunday)
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_single_day_of_week_ext(range).map(|n| vec![n]),
-        parse_asterisk(range).map(|r| {
-            r.into_iter()
-                .map(norm_sunday)
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-    )))
-    .parse_next(input)?;
+    move |input: &mut &str| {
+        let start_with_asterisk = input.starts_with('*');
 
-    let mut literals = BTreeSet::new();
-    let mut last_days_of_week = HashSet::new();
-    let mut nth_days_of_week = HashSet::new();
-    for value in values {
-        match value {
-            PossibleValue::Literal(value) => {
-                literals.insert(value);
+        let values = parse_list(alt((
+            parse_step(context, parse_single_day_of_week).map(|r| {
+                r.into_iter()
+                    .map(norm_sunday)
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+            parse_range(context, parse_single_day_of_week).map(|r| {
+                r.into_iter()
+                    .map(norm_sunday)
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+            parse_single_day_of_week_ext(context).map(|n| vec![n]),
+            parse_asterisk(context).map(|r| {
+                r.into_iter()
+                    .map(norm_sunday)
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+        )))
+        .parse_next(input)?;
+
+        let mut literals = BTreeSet::new();
+        let mut last_days_of_week = HashSet::new();
+        let mut nth_days_of_week = HashSet::new();
+        for value in values {
+            match value {
+                PossibleValue::Literal(value) => {
+                    literals.insert(value);
+                }
+                PossibleValue::LastDayOfWeek(weekday) => {
+                    last_days_of_week.insert(weekday);
+                }
+                PossibleValue::NthDayOfWeek(nth, weekday) => {
+                    nth_days_of_week.insert((nth, weekday));
+                }
+                _ => unreachable!("unexpected value: {value:?}"),
             }
-            PossibleValue::LastDayOfWeek(weekday) => {
-                last_days_of_week.insert(weekday);
-            }
-            PossibleValue::NthDayOfWeek(nth, weekday) => {
-                nth_days_of_week.insert((nth, weekday));
-            }
-            _ => unreachable!("unexpected value: {value:?}"),
         }
+        Ok(ParsedDaysOfWeek {
+            literals,
+            last_days_of_week,
+            nth_days_of_week,
+            start_with_asterisk,
+        })
     }
-    Ok(ParsedDaysOfWeek {
-        literals,
-        last_days_of_week,
-        nth_days_of_week,
-        start_with_asterisk,
-    })
 }
 
-fn parse_days_of_month(input: &mut &str) -> PResult<ParsedDaysOfMonth> {
-    let start_with_asterisk = input.starts_with('*');
-    let range = || 1..=31;
+fn parse_days_of_month<'a>(
+    options: ParseOptions,
+) -> impl Parser<&'a str, ParsedDaysOfMonth, ContextError> {
+    let context = ParseContext {
+        range_fn: || 1..=31,
+        hashed_value: options.hashed_value,
+    };
 
     fn parse_single_day_of_month_ext<'a>(
-        range: fn() -> RangeInclusive<u8>,
+        context: ParseContext,
     ) -> impl Parser<&'a str, PossibleValue, ContextError> {
         alt((
-            (parse_single_number(range), "W").map(|(n, _)| PossibleValue::NearestWeekday(n)),
-            parse_single_number(range).map(PossibleValue::Literal),
+            (parse_single_number(context), "W").map(|(n, _)| PossibleValue::NearestWeekday(n)),
+            parse_single_number(context).map(PossibleValue::Literal),
             "L".map(|_| PossibleValue::LastDayOfMonth),
+            parse_hashed_value(context).map(PossibleValue::Literal),
         ))
     }
 
-    let values = parse_list(alt((
-        parse_step(range, parse_single_number).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_range(range, parse_single_number).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-        parse_single_day_of_month_ext(range).map(|n| vec![n]),
-        parse_asterisk(range).map(|r| {
-            r.into_iter()
-                .map(PossibleValue::Literal)
-                .collect::<Vec<_>>()
-        }),
-    )))
-    .parse_next(input)?;
+    move |input: &mut &str| {
+        let start_with_asterisk = input.starts_with('*');
 
-    let mut literals = BTreeSet::new();
-    let mut last_day_of_month = false;
-    let mut nearest_weekdays = BTreeSet::new();
-    for value in values {
-        match value {
-            PossibleValue::Literal(value) => {
-                literals.insert(value);
+        let values = parse_list(alt((
+            parse_step(context, parse_single_number).map(|r| {
+                r.into_iter()
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+            parse_range(context, parse_single_number).map(|r| {
+                r.into_iter()
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+            parse_single_day_of_month_ext(context).map(|n| vec![n]),
+            parse_asterisk(context).map(|r| {
+                r.into_iter()
+                    .map(PossibleValue::Literal)
+                    .collect::<Vec<_>>()
+            }),
+        )))
+        .parse_next(input)?;
+
+        let mut literals = BTreeSet::new();
+        let mut last_day_of_month = false;
+        let mut nearest_weekdays = BTreeSet::new();
+        for value in values {
+            match value {
+                PossibleValue::Literal(value) => {
+                    literals.insert(value);
+                }
+                PossibleValue::LastDayOfMonth => {
+                    last_day_of_month = true;
+                }
+                PossibleValue::NearestWeekday(day) => {
+                    nearest_weekdays.insert(day);
+                }
+                _ => unreachable!("unexpected value: {value:?}"),
             }
-            PossibleValue::LastDayOfMonth => {
-                last_day_of_month = true;
-            }
-            PossibleValue::NearestWeekday(day) => {
-                nearest_weekdays.insert(day);
-            }
-            _ => unreachable!("unexpected value: {value:?}"),
         }
+        Ok(ParsedDaysOfMonth {
+            literals,
+            last_day_of_month,
+            nearest_weekdays,
+            start_with_asterisk,
+        })
     }
-    Ok(ParsedDaysOfMonth {
-        literals,
-        last_day_of_month,
-        nearest_weekdays,
-        start_with_asterisk,
-    })
 }
 
 fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
@@ -465,23 +506,21 @@ fn parse_timezone(input: &mut &str) -> PResult<jiff::tz::TimeZone> {
 }
 
 // number only = minutes, hours, or months
-fn do_parse_number_only(
-    range: fn() -> RangeInclusive<u8>,
-    input: &mut &str,
-) -> PResult<PossibleLiterals> {
+fn do_parse_number_only(context: ParseContext, input: &mut &str) -> PResult<PossibleLiterals> {
     let values = parse_list(alt((
-        parse_step(range, parse_single_number).map(|r| {
+        parse_step(context, parse_single_number).map(|r| {
             r.into_iter()
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_range(range, parse_single_number).map(|r| {
+        parse_range(context, parse_single_number).map(|r| {
             r.into_iter()
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
         }),
-        parse_single_number(range).map(|n| vec![PossibleValue::Literal(n)]),
-        parse_asterisk(range).map(|r| {
+        parse_single_number(context).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_hashed_value(context).map(|n| vec![PossibleValue::Literal(n)]),
+        parse_asterisk(context).map(|r| {
             r.into_iter()
                 .map(PossibleValue::Literal)
                 .collect::<Vec<_>>()
@@ -501,15 +540,25 @@ fn do_parse_number_only(
     Ok(PossibleLiterals { values: literals })
 }
 
-fn parse_asterisk<'a>(
-    range: fn() -> RangeInclusive<u8>,
-) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+fn parse_hashed_value<'a>(context: ParseContext) -> impl Parser<&'a str, u8, ContextError> {
+    move |input: &mut &str| {
+        if let Some(hashed_value) = context.hashed_value {
+            let range = (context.range_fn)();
+            let hashed_value = map_hash_into_range(hashed_value, range);
+            "H".map(move |_| hashed_value).parse_next(input)
+        } else {
+            fail(input)
+        }
+    }
+}
+
+fn parse_asterisk<'a>(context: ParseContext) -> impl Parser<&'a str, Vec<u8>, ContextError> {
+    let range = context.range_fn;
     "*".map(move |_| range().collect())
 }
 
-fn parse_single_number<'a>(
-    range: fn() -> RangeInclusive<u8>,
-) -> impl Parser<&'a str, u8, ContextError> {
+fn parse_single_number<'a>(context: ParseContext) -> impl Parser<&'a str, u8, ContextError> {
+    let range = context.range_fn;
     dec_uint.try_map_cut(move |n: u64| {
         let range = range();
 
@@ -531,16 +580,17 @@ fn parse_single_number<'a>(
 }
 
 fn parse_range<'a, P>(
-    range: fn() -> RangeInclusive<u8>,
-    parse_single_range_bound: fn(fn() -> RangeInclusive<u8>) -> P,
+    context: ParseContext,
+    parse_single_range_bound: fn(context: ParseContext) -> P,
 ) -> impl Parser<&'a str, Vec<u8>, ContextError>
 where
     P: Parser<&'a str, u8, ContextError>,
 {
+    let range = context.range_fn;
     (
-        parse_single_range_bound(range),
+        parse_single_range_bound(context),
         "-",
-        parse_single_range_bound(range),
+        parse_single_range_bound(context),
     )
         .try_map_cut(move |(lo, _, hi): (u8, _, u8)| {
             let range = range();
@@ -562,18 +612,19 @@ where
 }
 
 fn parse_step<'a, P>(
-    range: fn() -> RangeInclusive<u8>,
-    parse_single_range_bound: fn(fn() -> RangeInclusive<u8>) -> P,
+    context: ParseContext,
+    parse_single_range_bound: fn(context: ParseContext) -> P,
 ) -> impl Parser<&'a str, Vec<u8>, ContextError>
 where
     P: Parser<&'a str, u8, ContextError>,
 {
+    let range = context.range_fn;
     let range_end = *range().end();
 
     let possible_values = alt((
-        parse_asterisk(range),
-        parse_range(range, parse_single_range_bound),
-        parse_single_range_bound(range).map(move |n| (n..=range_end).collect()),
+        parse_asterisk(context),
+        parse_range(context, parse_single_range_bound),
+        parse_single_range_bound(context).map(move |n| (n..=range_end).collect()),
     ));
 
     (possible_values, "/", dec_uint).try_map_cut(move |(candidates, _, step): (Vec<u8>, _, u64)| {
