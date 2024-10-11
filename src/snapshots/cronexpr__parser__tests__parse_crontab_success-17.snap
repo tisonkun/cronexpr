@@ -1,0 +1,42 @@
+---
+source: src/parser.rs
+expression: "parse_crontab_with(\"H H H H H America/Denver\", options).unwrap()"
+---
+Crontab {
+    minutes: PossibleLiterals {
+        values: {
+            42,
+        },
+    },
+    hours: PossibleLiterals {
+        values: {
+            18,
+        },
+    },
+    months: PossibleLiterals {
+        values: {
+            7,
+        },
+    },
+    days_of_month: ParsedDaysOfMonth {
+        literals: {
+            12,
+        },
+        last_day_of_month: false,
+        nearest_weekdays: {},
+        start_with_asterisk: false,
+    },
+    days_of_week: ParsedDaysOfWeek {
+        literals: {
+            2,
+        },
+        last_days_of_week: {},
+        nth_days_of_week: {},
+        start_with_asterisk: false,
+    },
+    timezone: TimeZone(
+        TZif(
+            "America/Denver",
+        ),
+    ),
+}

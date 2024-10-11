@@ -79,8 +79,8 @@
 //! extensions.
 //!
 //! The mainly difference is that this crate may accept an explicit timezone in the crontab
-//! expression, which is necessary to determine the next timestamp. When the timezone is not
-//! specified, it is inferred as the system's timezone.
+//! expression, which is necessary to determine the next timestamp. The timezone is required by
+//! default. You can use [`parse_crontab_with`] to switch to the optional timezone mode.
 //!
 //! [standard crontab]: https://en.wikipedia.org/wiki/Cron#Cron_expression
 //!
@@ -180,6 +180,30 @@
 //!
 //! List items are parsed delimited by commas. This takes the highest precedence in the parsing.
 //! Thus, `1-10,40-50/2` is parsed as `1,2,3,4,5,6,7,8,9,10,40,42,44,46,48,50`.
+//!
+//! # Hashed value extension
+//!
+//! Starting from 1.1.0, the `H` character is allowed for all the fields (except timezone) when the
+//! [`ParseOptions`]'s `hashed_value` field is not `None`.
+//!
+//! When the `hashed_value` is not `None`, the `H` character is treated as a single value that
+//! maps `hashed_value` into the value range of that field:
+//!
+//!```rust
+//! use std::ops::RangeInclusive;
+//!
+//! fn map_hash_into_range(hashed_value: u64, range: RangeInclusive<u8>) -> u8 {
+//!     let modulo = range.end() - range.start() + 1;
+//!     let hashed_value = hashed_value % modulo as u64;
+//!     (range.start() + hashed_value as u8).min(*range.end())
+//! }
+//! ```
+//!
+//! `H` is firstly used in the Jenkins continuous integration system to indicate that a "hashed"
+//! value is substituted. Thus instead of a fixed number such as '20 * * * *' which means at 20
+//! minutes after the hour every hour, 'H * * * *' indicates that the task is performed every hour
+//! at an unspecified but invariant time for each task. This allows spreading out tasks over time,
+//! rather than having all of them start at the same time and compete for resources.
 //!
 //! # Day of month extension
 //!
