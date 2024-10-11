@@ -41,6 +41,7 @@ use crate::PossibleValue;
 /// Determine the timezone to fallback when the timezone part is missing.
 ///
 /// See also examples in the [`parse_crontab_with`] documentation.
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
 pub enum FallbackTimezoneOption {
     /// Do not fall back to any timezone. This means the timezone part is required.
