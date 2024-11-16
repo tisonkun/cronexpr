@@ -38,28 +38,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: korandoru/hawkeye@v5
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt,clippy
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: typos-cli,taplo-cli
-      - name: Check Format
-        run: cargo fmt --all
-      - name: Check Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Check Toml
-        run: taplo format --check
-      - name: Check Typos
-        run: typos
+          tool: typos-cli,taplo-cli,hawkeye
+      - name: Check all
+        run: |
+          hawkeye check
+          taplo format --check
+          typos
+          cargo +nightly fmt --all
+          cargo +nightly clippy --all-targets --all-features -- -D warnings
 
   test:
     name: Run tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust-version:
-          - "1.75.0"
-          - stable
+        rust-version: [ "1.75.0", "stable" ]
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
