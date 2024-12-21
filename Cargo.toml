@@ -18,10 +18,10 @@ version = "1.1.1"
 
 description = "A library to parse and drive the crontab expression."
 edition = "2021"
-homepage = "https://github.com/tisonkun/cronexpr"
+homepage = "https://github.com/cratesland/cronexpr"
 license = "Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/tisonkun/cronexpr"
+repository = "https://github.com/cratesland/cronexpr"
 rust-version = "1.75.0"
 
 [package.metadata.docs.rs]

@@ -13,8 +13,8 @@
 [docs-url]: https://docs.rs/cronexpr
 [license-badge]: https://img.shields.io/crates/l/cronexpr
 [license-url]: LICENSE
-[actions-badge]: https://github.com/tisonkun/cronexpr/workflows/CI/badge.svg
-[actions-url]:https://github.com/tisonkun/cronexpr/actions?query=workflow%3ACI
+[actions-badge]: https://github.com/cratesland/cronexpr/workflows/CI/badge.svg
+[actions-url]:https://github.com/cratesland/cronexpr/actions?query=workflow%3ACI
 
 ## Overview
 
